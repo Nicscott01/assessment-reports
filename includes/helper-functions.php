@@ -281,8 +281,12 @@ function get_entry_by_hash($hash = null)
  * @param mixed $default Default value to return if field not found
  * @return mixed The field value or default if not found
  */
-function get_entry_field($field_name, $hash = null, $default = null)
+function get_entry_field($field_name, $hash = null, $default = '')
 {
+    if ($default === null) {
+        $default = '';
+    }
+
     if ($hash === null && isset($_GET['entry_hash'])) {
         $hash = sanitize_text_field(wp_unslash($_GET['entry_hash']));
     }
@@ -301,7 +305,10 @@ function get_entry_field($field_name, $hash = null, $default = null)
 
     // Check in response data
     if (is_array($response) && isset($response[$field_name])) {
-        return normalize_dynamic_value($response[$field_name], $field_name);
+        $value = normalize_dynamic_value($response[$field_name], $field_name);
+        if ($value !== null) {
+            return (string) $value;
+        }
     }
 
     // Convert user_inputs to array if it's an object
@@ -312,10 +319,13 @@ function get_entry_field($field_name, $hash = null, $default = null)
 
     // Check in user_inputs (parsed/formatted data)
     if (is_array($user_inputs) && isset($user_inputs[$field_name])) {
-        return normalize_dynamic_value($user_inputs[$field_name], $field_name);
+        $value = normalize_dynamic_value($user_inputs[$field_name], $field_name);
+        if ($value !== null) {
+            return (string) $value;
+        }
     }
 
-    return $default;
+    return (string) $default;
 }
 
 /**
