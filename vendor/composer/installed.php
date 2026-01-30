@@ -3,7 +3,7 @@
         'name' => 'assessment-reports/assessment-reports',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => 'affc6844123e9786d830ac56ba66da8fc7cd1332',
+        'reference' => 'a41abaa92f8a1f0ab89e40f85169333715954b5c',
         'type' => 'wordpress-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -13,7 +13,7 @@
         'assessment-reports/assessment-reports' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => 'affc6844123e9786d830ac56ba66da8fc7cd1332',
+            'reference' => 'a41abaa92f8a1f0ab89e40f85169333715954b5c',
             'type' => 'wordpress-plugin',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
@@ -128,6 +128,15 @@
                 0 => '*',
                 1 => '1.0',
             ),
+        ),
+        'woocommerce/action-scheduler' => array(
+            'pretty_version' => '3.9.3',
+            'version' => '3.9.3.0',
+            'reference' => 'c58cdbab17651303d406cd3b22cf9d75c71c986c',
+            'type' => 'wordpress-plugin',
+            'install_path' => __DIR__ . '/../woocommerce/action-scheduler',
+            'aliases' => array(),
+            'dev_requirement' => false,
         ),
         'wordpress/php-ai-client' => array(
             'pretty_version' => '0.3.1',

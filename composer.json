@@ -3,7 +3,8 @@
     "description": "Assessment Reports plugin dependencies",
     "type": "wordpress-plugin",
     "require": {
-        "wordpress/wp-ai-client": "*"
+        "wordpress/wp-ai-client": "*",
+        "woocommerce/action-scheduler": "^3.7"
     },
     "autoload": {
         "psr-4": {

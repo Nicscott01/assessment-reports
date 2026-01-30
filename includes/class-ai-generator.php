@@ -14,6 +14,8 @@ class AI_Generator
     public function __construct()
     {
         add_action('template_redirect', [$this, 'maybe_generate_ai_content']);
+        add_action('rest_api_init', [$this, 'register_routes']);
+        add_action('assessment_reports_generate_ai', [$this, 'handle_async_generation'], 10, 2);
     }
 
     public function maybe_generate_ai_content()
@@ -42,25 +44,111 @@ class AI_Generator
             error_log('AR AI: existing AI content found for entry_id=' . $entry_id);
         }
 
-        if (! $ai_content && ! $this->is_ai_ready()) {
-            error_log('AR AI: AI client not ready.');
-        }
-
-        if (! $ai_content && $this->is_ai_ready()) {
-            $report_id = get_the_ID();
-            error_log('AR AI: generating content. report_id=' . $report_id . ' entry_id=' . $entry_id);
-            $ai_content = $this->generate_ai_content($report_id, $entry_id);
-            if ($ai_content) {
-                error_log('AR AI: generated content, saving.');
-                ar_set_ai_generated_content($entry_id, $ai_content);
-                Helper::setSubmissionMeta($entry_id, 'ai_generation_timestamp', time());
-            } else {
-                error_log('AR AI: generation returned empty content.');
-            }
-        }
-
         set_transient('ar_current_ai_content_' . $entry_id, $ai_content, HOUR_IN_SECONDS);
         set_transient('ar_current_entry_id', $entry_id, HOUR_IN_SECONDS);
+    }
+
+    public function register_routes()
+    {
+        register_rest_route('assessment-reports/v1', '/ai-generate', [
+            'methods' => 'POST',
+            'callback' => [$this, 'rest_generate_ai'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        register_rest_route('assessment-reports/v1', '/ai-status', [
+            'methods' => 'GET',
+            'callback' => [$this, 'rest_ai_status'],
+            'permission_callback' => '__return_true',
+        ]);
+    }
+
+    public function rest_generate_ai(\WP_REST_Request $request)
+    {
+        $entry_hash = sanitize_text_field((string) $request->get_param('entry_hash'));
+        $entry_id = ar_get_entry_id_from_hash($entry_hash);
+        if (! $entry_id) {
+            return new \WP_REST_Response(['ready' => false, 'error' => 'invalid_entry'], 400);
+        }
+
+        $report_id = ar_get_report_id_by_entry_id($entry_id);
+        if (! $report_id) {
+            return new \WP_REST_Response(['ready' => false, 'error' => 'report_not_found'], 404);
+        }
+
+        $ai_blocks = get_post_meta($report_id, '_ai_content_blocks', true);
+        if (! is_array($ai_blocks) || empty($ai_blocks)) {
+            return new \WP_REST_Response(['ready' => true, 'status' => 'no_blocks'], 200);
+        }
+
+        if (! $this->is_ai_ready()) {
+            return new \WP_REST_Response(['ready' => false, 'error' => 'ai_not_ready'], 200);
+        }
+
+        $status = Helper::getSubmissionMeta($entry_id, 'ai_generation_status');
+        if ($status === 'ready') {
+            return new \WP_REST_Response(['ready' => true, 'status' => 'ready'], 200);
+        }
+
+        if ($status !== 'running') {
+            Helper::setSubmissionMeta($entry_id, 'ai_generation_status', 'pending');
+            Helper::setSubmissionMeta($entry_id, 'ai_generation_error', '');
+            $this->enqueue_generation($report_id, $entry_id);
+        }
+
+        return new \WP_REST_Response(['ready' => false, 'status' => $status ?: 'pending'], 200);
+    }
+
+    public function rest_ai_status(\WP_REST_Request $request)
+    {
+        $entry_hash = sanitize_text_field((string) $request->get_param('entry_hash'));
+        $entry_id = ar_get_entry_id_from_hash($entry_hash);
+        if (! $entry_id) {
+            return new \WP_REST_Response(['ready' => false, 'error' => 'invalid_entry'], 400);
+        }
+
+        $status = Helper::getSubmissionMeta($entry_id, 'ai_generation_status');
+        $ready = $status === 'ready';
+        $failed = $status === 'failed';
+
+        return new \WP_REST_Response([
+            'ready' => $ready,
+            'failed' => $failed,
+            'status' => $status ?: 'pending',
+        ], 200);
+    }
+
+    public function handle_async_generation($report_id, $entry_id)
+    {
+        $report_id = absint($report_id);
+        $entry_id = absint($entry_id);
+        if (! $report_id || ! $entry_id) {
+            return;
+        }
+
+        Helper::setSubmissionMeta($entry_id, 'ai_generation_status', 'running');
+        Helper::setSubmissionMeta($entry_id, 'ai_generation_error', '');
+
+        $ai_content = $this->generate_ai_content($report_id, $entry_id);
+        if ($ai_content) {
+            ar_set_ai_generated_content($entry_id, $ai_content);
+            Helper::setSubmissionMeta($entry_id, 'ai_generation_timestamp', time());
+            Helper::setSubmissionMeta($entry_id, 'ai_generation_status', 'ready');
+            return;
+        }
+
+        Helper::setSubmissionMeta($entry_id, 'ai_generation_status', 'failed');
+        Helper::setSubmissionMeta($entry_id, 'ai_generation_error', 'generation_failed');
+    }
+
+    private function enqueue_generation($report_id, $entry_id)
+    {
+        if (function_exists('as_enqueue_async_action')) {
+            as_enqueue_async_action('assessment_reports_generate_ai', [$report_id, $entry_id], 'assessment-reports');
+            return;
+        }
+
+        wp_schedule_single_event(time(), 'assessment_reports_generate_ai', [$report_id, $entry_id]);
     }
 
     private function generate_ai_content($report_id, $entry_id)

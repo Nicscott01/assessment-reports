@@ -24,6 +24,13 @@ if (file_exists(ASSESSMENT_REPORTS_PLUGIN_DIR . 'vendor/autoload.php')) {
     require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'vendor/autoload.php';
 }
 
+if (! function_exists('as_enqueue_async_action')) {
+    $as_bootstrap = ASSESSMENT_REPORTS_PLUGIN_DIR . 'vendor/woocommerce/action-scheduler/action-scheduler.php';
+    if (file_exists($as_bootstrap)) {
+        require_once $as_bootstrap;
+    }
+}
+
 require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-post-type.php';
 require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-meta-box.php';
 require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-submission-handler.php';

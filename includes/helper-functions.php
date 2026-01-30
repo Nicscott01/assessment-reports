@@ -148,6 +148,22 @@ function get_report_by_hash($hash)
 }
 
 /**
+ * Get report parent ID by entry ID.
+ *
+ * @param int $entry_id The FluentForm submission/entry ID
+ * @return int Report parent ID or 0 if not found
+ */
+function ar_get_report_id_by_entry_id($entry_id)
+{
+    $sections = get_top_sections_by_entry_id($entry_id);
+    if (! $sections || empty($sections[0]['parent_id'])) {
+        return 0;
+    }
+
+    return absint($sections[0]['parent_id']);
+}
+
+/**
  * Get report display link for an entry ID
  *
  * @param int $entry_id The FluentForm submission/entry ID

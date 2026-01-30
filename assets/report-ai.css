@@ -1,0 +1,52 @@
+.assessment-report-overlay {
+    align-items: center;
+    background: rgba(15, 18, 23, 0.65);
+    bottom: 0;
+    display: flex;
+    justify-content: center;
+    left: 0;
+    padding: 24px;
+    position: fixed;
+    right: 0;
+    top: 0;
+    z-index: 99999;
+}
+
+.assessment-report-overlay__inner {
+    align-items: center;
+    background: #ffffff;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(15, 18, 23, 0.25);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 420px;
+    padding: 32px 24px;
+    text-align: center;
+    width: 100%;
+}
+
+.assessment-report-overlay p {
+    color: #1b2533;
+    font-size: 18px;
+    margin: 0;
+}
+
+.assessment-report-overlay.is-error p {
+    color: #b3261e;
+}
+
+.ar-spinner {
+    animation: ar-spin 1s linear infinite;
+    border: 4px solid rgba(27, 37, 51, 0.15);
+    border-radius: 50%;
+    border-top-color: #1b2533;
+    height: 48px;
+    width: 48px;
+}
+
+@keyframes ar-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
