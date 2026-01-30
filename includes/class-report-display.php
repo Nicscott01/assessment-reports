@@ -13,6 +13,11 @@ class Report_Display
         add_shortcode(self::SHORTCODE, [$this, 'render_shortcode']);
     }
 
+    public function get_entry_hash($entry_id)
+    {
+        return ar_encode_entry_hash($entry_id);
+    }
+
     public function render_shortcode($atts)
     {
         $entry_id = $this->get_entry_id_from_request();
@@ -63,17 +68,6 @@ class Report_Display
         return $output;
     }
 
-    public function get_entry_hash($entry_id)
-    {
-        $entry_id = absint($entry_id);
-        if (! $entry_id) {
-            return '';
-        }
-
-        $payload = $entry_id . '|' . $this->build_signature($entry_id);
-        return strtr(base64_encode($payload), '+/=', '-_,');
-    }
-
     private function get_entry_id_from_request()
     {
         if (empty($_GET['entry'])) {
@@ -81,44 +75,7 @@ class Report_Display
         }
 
         $hash = sanitize_text_field(wp_unslash($_GET['entry']));
-        return $this->decode_entry_hash($hash);
-    }
-
-    private function decode_entry_hash($hash)
-    {
-        if (! $hash) {
-            return 0;
-        }
-
-        $decoded = base64_decode(strtr($hash, '-_,', '+/='), true);
-        if (! $decoded) {
-            return 0;
-        }
-
-        [$entry_id, $signature] = array_pad(explode('|', $decoded, 2), 2, '');
-        if (! $entry_id || ! $signature) {
-            return 0;
-        }
-
-        if (! hash_equals($this->build_signature($entry_id), $signature)) {
-            return 0;
-        }
-
-        return absint($entry_id);
-    }
-
-    private function build_signature($entry_id)
-    {
-        return hash_hmac('sha256', (string) $entry_id, $this->get_hash_salt());
-    }
-
-    private function get_hash_salt()
-    {
-        if (defined('ASSESSMENT_REPORT_HASH_SALT')) {
-            return ASSESSMENT_REPORT_HASH_SALT;
-        }
-
-        return wp_salt('assessment_reports');
+        return ar_decode_entry_hash($hash);
     }
 
     private function get_top_sections($entry_id)

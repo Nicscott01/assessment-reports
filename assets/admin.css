@@ -43,3 +43,55 @@
 .ar-weight-input {
     width: 60px;
 }
+
+.ar-ai-block {
+    border: 1px solid #ddd;
+    padding: 12px;
+    margin-bottom: 16px;
+    background: #fff;
+    position: relative;
+}
+
+.ar-ai-block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.ar-ai-block-header strong {
+    font-size: 14px;
+}
+
+.ar-ai-block-header .ar-ai-remove-row {
+    color: #d54e21;
+    font-size: 11px;
+}
+
+.ar-ai-context-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.ar-ai-context-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+}
+
+.ar-field-label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 4px;
+    font-size: 13px;
+}
+
+.ar-ai-checkbox {
+    margin-bottom: 8px;
+}
+
+.ar-ai-context-fields {
+    margin-bottom: 12px;
+}

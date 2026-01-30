@@ -1,0 +1,18 @@
+{
+    "name": "assessment-reports/assessment-reports",
+    "description": "Assessment Reports plugin dependencies",
+    "type": "wordpress-plugin",
+    "require": {
+        "wordpress/wp-ai-client": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "AssessmentReports\\": "includes/"
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    }
+}
