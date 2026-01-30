@@ -30,6 +30,15 @@ class Meta_Box
             'normal',
             'default'
         );
+
+        add_meta_box(
+            'ar_ai_personalization',
+            __('AI Personalization', 'assessment-reports'),
+            [$this, 'render_ai_personalization_meta_box'],
+            Post_Type::POST_TYPE,
+            'normal',
+            'default'
+        );
     }
 
     public function render_report_config_meta_box($post)
@@ -173,6 +182,7 @@ class Meta_Box
             $this->save_section_meta($post_id);
         } else {
             $this->save_report_meta($post_id);
+            $this->save_ai_meta($post_id);
         }
     }
 
@@ -239,6 +249,239 @@ class Meta_Box
         }
     }
 
+    public function render_ai_personalization_meta_box($post)
+    {
+        if ($post->post_parent) {
+            echo '<p>' . esc_html__('AI personalization only applies to parent report posts.', 'assessment-reports') . '</p>';
+            return;
+        }
+
+        wp_nonce_field('ar_ai_meta_box', 'ar_ai_meta_nonce');
+
+        $form_id = get_post_meta($post->ID, '_report_form_id', true);
+        if (! $form_id) {
+            echo '<p>' . esc_html__('Select a Fluent Form on this report before creating AI content blocks.', 'assessment-reports') . '</p>';
+            return;
+        }
+
+        if (! $this->is_ai_client_ready()) {
+            echo '<div class="notice notice-warning inline"><p>' .
+                esc_html__('The WP AI Client is not configured or active, so AI personalization cannot be generated yet.', 'assessment-reports') .
+                '</p></div>';
+            return;
+        }
+
+        $ai_blocks = get_post_meta($post->ID, '_ai_content_blocks', true);
+        if (! is_array($ai_blocks)) {
+            $ai_blocks = [];
+        }
+
+        $context_fields = $this->get_context_field_options($form_id);
+        $next_index = count($ai_blocks);
+
+        echo '<div class="ar-ai-blocks" data-next-index="' . esc_attr($next_index) . '">';
+        foreach ($ai_blocks as $index => $block) {
+            echo $this->render_ai_block_row($index, $block, $context_fields);
+        }
+        echo '</div>';
+
+        echo '<p><button type="button" class="button" id="ar-add-ai-block">' . esc_html__('Add AI Block', 'assessment-reports') . '</button></p>';
+
+        echo '<script type="text/html" id="ar-ai-block-template">';
+        echo $this->render_ai_block_row('__INDEX__', [], $context_fields, true);
+        echo '</script>';
+
+        if (! $context_fields) {
+            echo '<p class="description">' . esc_html__('No checkbox, radio, or select inputs exist on the selected form, so no context fields can be attached.', 'assessment-reports') . '</p>';
+        }
+    }
+
+    private function render_ai_block_row($index, $block, array $context_fields, $is_template = false)
+    {
+        $token = $block['token'] ?? '';
+        $example = $block['example'] ?? '';
+        $instructions = $block['instructions'] ?? '';
+        $context_selected = is_array($block['context_fields']) ? $block['context_fields'] : [];
+        $include_score = ! empty($block['include_score']);
+        $additional_context = $block['additional_context'] ?? '';
+        $name_index = $is_template ? '__INDEX__' : $index;
+
+        ob_start();
+        ?>
+        <div class="ar-ai-block" data-index="<?php echo esc_attr($name_index); ?>">
+            <div class="ar-ai-block-header">
+                <strong><?php echo esc_html(sprintf(__('AI Block %s', 'assessment-reports'), $is_template ? '%s' : '#' . ($index + 1))); ?></strong>
+                <button type="button" class="button-link ar-ai-remove-row"><?php esc_html_e('Remove', 'assessment-reports'); ?></button>
+            </div>
+            <p>
+                <label>
+                    <span class="ar-field-label"><?php esc_html_e('Token Name', 'assessment-reports'); ?></span>
+                    <input
+                        type="text"
+                        name="ai_blocks[<?php echo esc_attr($name_index); ?>][token]"
+                        value="<?php echo esc_attr($token); ?>"
+                        placeholder="<?php esc_attr_e('opening', 'assessment-reports'); ?>"
+                        class="widefat"
+                    >
+                    <span class="description"><?php esc_html_e('Use this token as {ai.TOKEN_NAME} in your content.', 'assessment-reports'); ?></span>
+                </label>
+            </p>
+            <p>
+                <label>
+                    <span class="ar-field-label"><?php esc_html_e('Example Content', 'assessment-reports'); ?></span>
+                    <textarea
+                        name="ai_blocks[<?php echo esc_attr($name_index); ?>][example]"
+                        rows="8"
+                        class="widefat"
+                    ><?php echo esc_textarea($example); ?></textarea>
+                    <span class="description"><?php esc_html_e('The example paragraph the AI should model.', 'assessment-reports'); ?></span>
+                </label>
+            </p>
+            <p>
+                <label>
+                    <span class="ar-field-label"><?php esc_html_e('Personalization Instructions', 'assessment-reports'); ?></span>
+                    <textarea
+                        name="ai_blocks[<?php echo esc_attr($name_index); ?>][instructions]"
+                        rows="4"
+                        class="widefat"
+                    ><?php echo esc_textarea($instructions); ?></textarea>
+                    <span class="description"><?php esc_html_e('Tell the AI what to adjust for this user.', 'assessment-reports'); ?></span>
+                </label>
+            </p>
+            <div class="ar-ai-context-fields">
+                <p class="ar-field-label"><?php esc_html_e('Context Fields', 'assessment-reports'); ?></p>
+                <?php echo $this->render_context_checkboxes($name_index, $context_fields, $context_selected, $is_template); ?>
+            </div>
+            <p class="ar-ai-checkbox">
+                <label>
+                    <input
+                        type="checkbox"
+                        name="ai_blocks[<?php echo esc_attr($name_index); ?>][include_score]"
+                        value="1"
+                        <?php checked($include_score); ?>
+                    >
+                    <?php esc_html_e('Include quiz score in prompt', 'assessment-reports'); ?>
+                </label>
+            </p>
+            <p>
+                <label>
+                    <span class="ar-field-label"><?php esc_html_e('Additional Context', 'assessment-reports'); ?></span>
+                    <textarea
+                        name="ai_blocks[<?php echo esc_attr($name_index); ?>][additional_context]"
+                        rows="3"
+                        class="widefat"
+                    ><?php echo esc_textarea($additional_context); ?></textarea>
+                    <span class="description"><?php esc_html_e('Extra context not included in the form data.', 'assessment-reports'); ?></span>
+                </label>
+            </p>
+        </div>
+        <?php
+        return $is_template ? trim(preg_replace('/\s+/', ' ', ob_get_clean())) : ob_get_clean();
+    }
+
+    private function render_context_checkboxes($index, array $context_fields, array $selected, $is_template = false)
+    {
+        if (empty($context_fields)) {
+            return '<p class="description">' . esc_html__('No context fields available for this form.', 'assessment-reports') . '</p>';
+        }
+
+        $html = '<div class="ar-ai-context-list">';
+        foreach ($context_fields as $field_name => $label) {
+            $is_checked = in_array($field_name, $selected, true);
+            $field_name_html = 'ai_blocks[' . esc_attr($index) . '][context_fields][]';
+            $html .= '<label class="ar-ai-context-option">';
+            $html .= '<input type="checkbox" name="' . $field_name_html . '" value="' . esc_attr($field_name) . '" ' . checked($is_checked, true, false) . '>';
+            $html .= esc_html($label);
+            $html .= '</label>';
+        }
+        $html .= '</div>';
+
+        return $html;
+    }
+
+    private function save_ai_meta($post_id)
+    {
+        if (! isset($_POST['ar_ai_meta_nonce']) || ! wp_verify_nonce($_POST['ar_ai_meta_nonce'], 'ar_ai_meta_box')) {
+            return;
+        }
+
+        if (! current_user_can('edit_post', $post_id)) {
+            return;
+        }
+
+        $blocks = [];
+        if (! empty($_POST['ai_blocks']) && is_array($_POST['ai_blocks'])) {
+            foreach ($_POST['ai_blocks'] as $block) {
+                $token = isset($block['token']) ? sanitize_text_field($block['token']) : '';
+                $token = trim($token);
+                $token = trim($token, '{}');
+                $token = preg_replace('/[^A-Za-z0-9_]+/', '_', $token);
+                $token = trim($token, '_');
+                if (! $token) {
+                    continue;
+                }
+
+                $example = isset($block['example']) ? wp_kses_post(wp_unslash($block['example'])) : '';
+                $instructions = isset($block['instructions']) ? sanitize_textarea_field($block['instructions']) : '';
+                $context = [];
+                if (! empty($block['context_fields']) && is_array($block['context_fields'])) {
+                    foreach ($block['context_fields'] as $context_field) {
+                        $context_field = sanitize_text_field($context_field);
+                        if ($context_field) {
+                            $context[] = $context_field;
+                        }
+                    }
+                }
+
+                $blocks[] = [
+                    'token' => $token,
+                    'example' => $example,
+                    'instructions' => $instructions,
+                    'context_fields' => $context,
+                    'include_score' => ! empty($block['include_score']) ? 1 : 0,
+                    'additional_context' => isset($block['additional_context']) ? sanitize_textarea_field($block['additional_context']) : '',
+                ];
+            }
+        }
+
+        if ($blocks) {
+            update_post_meta($post_id, '_ai_content_blocks', $blocks);
+        } else {
+            delete_post_meta($post_id, '_ai_content_blocks');
+        }
+    }
+
+    private function get_context_field_options($form_id)
+    {
+        $fields = $this->get_form_fields($form_id);
+        if (! $fields) {
+            return [];
+        }
+
+        $options = [];
+        foreach ($fields as $field) {
+            $type = $field['element'] ?? $field['type'] ?? '';
+            if (! in_array($type, ['input_checkbox', 'input_radio', 'select', 'input_select'], true)) {
+                continue;
+            }
+
+            $name = $field['attributes']['name'] ?? '';
+            if (! $name) {
+                continue;
+            }
+
+            $label = $field['settings']['label'] ?? $field['attributes']['label'] ?? $name;
+            $options[$name] = $label;
+        }
+
+        return $options;
+    }
+
+    private function is_ai_client_ready()
+    {
+        return class_exists('\WordPress\\AI_Client\\AI_Client') || class_exists('\WP_AI_Client');
+    }
+
     public function enqueue_assets($hook)
     {
         $screen = get_current_screen();
@@ -248,6 +491,7 @@ class Meta_Box
 
         $js_path = ASSESSMENT_REPORTS_PLUGIN_DIR . 'assets/admin.js';
         $css_path = ASSESSMENT_REPORTS_PLUGIN_DIR . 'assets/admin.css';
+        $ai_js_path = ASSESSMENT_REPORTS_PLUGIN_DIR . 'assets/admin-ai.js';
 
         if (file_exists($js_path)) {
             wp_enqueue_script(
@@ -255,6 +499,16 @@ class Meta_Box
                 ASSESSMENT_REPORTS_PLUGIN_URL . 'assets/admin.js',
                 [],
                 filemtime($js_path),
+                true
+            );
+        }
+
+        if (file_exists($ai_js_path)) {
+            wp_enqueue_script(
+                'assessment-reports-admin-ai',
+                ASSESSMENT_REPORTS_PLUGIN_URL . 'assets/admin-ai.js',
+                [],
+                filemtime($ai_js_path),
                 true
             );
         }

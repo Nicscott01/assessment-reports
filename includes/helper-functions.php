@@ -297,6 +297,12 @@ function get_entry_field($field_name, $hash = null, $default = '')
         return $default;
     }
 
+    $path = [];
+    if (is_string($field_name) && strpos($field_name, '.') !== false) {
+        $path = array_values(array_filter(explode('.', $field_name), 'strlen'));
+        $field_name = $path[0] ?? $field_name;
+    }
+
     // Convert response to array if it's an object
     $response = $entry->response ?? null;
     if (is_object($response)) {
@@ -305,7 +311,11 @@ function get_entry_field($field_name, $hash = null, $default = '')
 
     // Check in response data
     if (is_array($response) && isset($response[$field_name])) {
-        $value = normalize_dynamic_value($response[$field_name], $field_name);
+        $raw_value = $response[$field_name];
+        if ($path) {
+            $raw_value = ar_get_nested_value($raw_value, array_slice($path, 1));
+        }
+        $value = normalize_dynamic_value($raw_value, $field_name);
         if ($value !== null) {
             return (string) $value;
         }
@@ -319,13 +329,49 @@ function get_entry_field($field_name, $hash = null, $default = '')
 
     // Check in user_inputs (parsed/formatted data)
     if (is_array($user_inputs) && isset($user_inputs[$field_name])) {
-        $value = normalize_dynamic_value($user_inputs[$field_name], $field_name);
+        $raw_value = $user_inputs[$field_name];
+        if ($path) {
+            $raw_value = ar_get_nested_value($raw_value, array_slice($path, 1));
+        }
+        $value = normalize_dynamic_value($raw_value, $field_name);
         if ($value !== null) {
             return (string) $value;
         }
     }
 
     return (string) $default;
+}
+
+/**
+ * Resolve a nested value from an array/object using a path of keys.
+ *
+ * @param mixed $value
+ * @param array $path
+ * @return mixed|null
+ */
+function ar_get_nested_value($value, array $path)
+{
+    if (empty($path)) {
+        return $value;
+    }
+
+    if (is_object($value)) {
+        $value = (array) $value;
+    }
+
+    foreach ($path as $key) {
+        if (is_array($value) && array_key_exists($key, $value)) {
+            $value = $value[$key];
+            if (is_object($value)) {
+                $value = (array) $value;
+            }
+            continue;
+        }
+
+        return null;
+    }
+
+    return $value;
 }
 
 /**
@@ -497,6 +543,35 @@ function get_current_entry_hash()
 }
 
 /**
+ * Resolve an entry ID from either entry_hash (_entry_uid_hash) or entry (encoded hash).
+ *
+ * @param string|null $hash Optional hash string. Uses current request if not provided.
+ * @return int The entry ID or 0 if not found.
+ */
+function ar_get_entry_id_from_hash($hash = null)
+{
+    if ($hash === null) {
+        $hash = get_current_entry_hash();
+    }
+
+    if (! $hash) {
+        return 0;
+    }
+
+    $decoded = ar_decode_entry_hash($hash);
+    if ($decoded) {
+        return absint($decoded);
+    }
+
+    $entry_id = get_submission_id_by_hash($hash);
+    if ($entry_id) {
+        return absint($entry_id);
+    }
+
+    return 0;
+}
+
+/**
  * Check if current request has an entry hash
  *
  * @return bool True if hash exists in URL
@@ -504,4 +579,199 @@ function get_current_entry_hash()
 function has_entry_hash()
 {
     return get_current_entry_hash() !== null;
+}
+
+/**
+ * Retrieve cached AI-generated content from entry meta.
+ *
+ * @param int $entry_id
+ * @return array
+ */
+function ar_get_ai_generated_content($entry_id)
+{
+    $raw = Helper::getSubmissionMeta($entry_id, 'ai_generated_content');
+    if (! $raw) {
+        return [];
+    }
+
+    if (is_string($raw)) {
+        $decoded = json_decode($raw, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            return $decoded;
+        }
+        return [];
+    }
+
+    return is_array($raw) ? $raw : [];
+}
+
+/**
+ * Persist AI-generated content to entry meta.
+ *
+ * @param int $entry_id
+ * @param array $content
+ */
+function ar_set_ai_generated_content($entry_id, array $content)
+{
+    $encoded = wp_json_encode($content);
+    if (! $encoded) {
+        return;
+    }
+
+    Helper::setSubmissionMeta($entry_id, 'ai_generated_content', $encoded);
+}
+
+/**
+ * Retrieve AI-generated content for the current request's entry hash.
+ *
+ * @param string|null $key Optional. Specific AI content key to return.
+ * @return mixed Array of all AI content, a specific value, or null if not found.
+ */
+function get_ai_generated_content($key = null)
+{
+    if (! isset($_GET['entry_hash'])) {
+        return "";
+    }
+
+    $hash = sanitize_text_field(wp_unslash($_GET['entry_hash']));
+    if (! $hash) {
+        return "";
+    }
+
+    $entry_id = get_submission_id_by_hash($hash);
+    if (! $entry_id) {
+        return "";
+    }
+
+    $content = ar_get_ai_generated_content($entry_id);
+    if (! is_array($content) || empty($content)) {
+        return "";
+    }
+
+    if ($key === null) {
+        return wpautop($content);
+    }
+
+    return wpautop($content[$key] ?? "");
+}
+
+/**
+ * Encode entry ID into the public hash used on report URLs.
+ *
+ * @param int $entry_id
+ * @return string
+ */
+function ar_encode_entry_hash($entry_id)
+{
+    $entry_id = absint($entry_id);
+    if (! $entry_id) {
+        return '';
+    }
+
+    $payload = $entry_id . '|' . ar_build_entry_signature($entry_id);
+    return strtr(base64_encode($payload), '+/=', '-_,');
+}
+
+/**
+ * Decode the public entry hash back to an entry ID.
+ *
+ * @param string $hash
+ * @return int
+ */
+function ar_decode_entry_hash($hash)
+{
+    if (! $hash) {
+        return 0;
+    }
+
+    $decoded = base64_decode(strtr($hash, '-_,', '+/='), true);
+    if (! $decoded) {
+        return 0;
+    }
+
+    [$entry_id, $signature] = array_pad(explode('|', $decoded, 2), 2, '');
+    if (! $entry_id || ! $signature) {
+        return 0;
+    }
+
+    if (! hash_equals(ar_build_entry_signature($entry_id), $signature)) {
+        return 0;
+    }
+
+    return absint($entry_id);
+}
+
+/**
+ * Build the signature used for entry hashes.
+ *
+ * @param int $entry_id
+ * @return string
+ */
+function ar_build_entry_signature($entry_id)
+{
+    return hash_hmac('sha256', (string) $entry_id, ar_get_entry_hash_salt());
+}
+
+/**
+ * Determine the salt used for entry hash signatures.
+ *
+ * @return string
+ */
+function ar_get_entry_hash_salt()
+{
+    if (defined('ASSESSMENT_REPORT_HASH_SALT')) {
+        return ASSESSMENT_REPORT_HASH_SALT;
+    }
+
+    return wp_salt('assessment_reports');
+}
+
+/**
+ * Resolve a field label from a Fluent Form.
+ *
+ * @param int $form_id
+ * @param string $field_name
+ * @return string
+ */
+function ar_get_field_label($form_id, $field_name)
+{
+    $form = fluentFormApi('forms')->find($form_id);
+    if (! $form || empty($form->form_fields)) {
+        return $field_name;
+    }
+
+    $fields = json_decode($form->form_fields, true);
+    if (! is_array($fields)) {
+        return $field_name;
+    }
+
+    foreach ($fields['fields'] ?? [] as $field) {
+        $name = $field['attributes']['name'] ?? '';
+        if ($name === $field_name) {
+            return $field['settings']['label'] ?? $field['attributes']['label'] ?? $field_name;
+        }
+    }
+
+    return $field_name;
+}
+
+/**
+ * Get a loose quiz score from the reported sections.
+ *
+ * @param int $entry_id
+ * @return int|null
+ */
+function ar_get_quiz_score($entry_id)
+{
+    $sections = get_top_sections_by_entry_id($entry_id);
+    if (! $sections) {
+        return null;
+    }
+
+    $score = 0;
+    foreach ($sections as $section) {
+        $score += absint($section['score'] ?? 0);
+    }
+
+    return $score;
 }
