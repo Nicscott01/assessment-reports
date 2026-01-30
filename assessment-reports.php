@@ -1,0 +1,33 @@
+<?php
+/**
+ * Plugin Name: Assessment Reports
+ * Description: Maps Fluent Forms quiz responses to dynamic report sections and surfaces personalized report content.
+ * Version: 1.0.0
+ * Author: Nic Scott
+ * Text Domain: assessment-reports
+ * License: GPL-2.0+
+ */
+
+if (! defined('ABSPATH')) {
+    exit;
+}
+
+if (! defined('ASSESSMENT_REPORTS_PLUGIN_DIR')) {
+    define('ASSESSMENT_REPORTS_PLUGIN_DIR', plugin_dir_path(__FILE__));
+}
+
+if (! defined('ASSESSMENT_REPORTS_PLUGIN_URL')) {
+    define('ASSESSMENT_REPORTS_PLUGIN_URL', plugin_dir_url(__FILE__));
+}
+
+require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-post-type.php';
+require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-meta-box.php';
+require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-submission-handler.php';
+require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-report-display.php';
+
+add_action('plugins_loaded', function () {
+    new \AssessmentReports\Post_Type();
+    new \AssessmentReports\Meta_Box();
+    new \AssessmentReports\Submission_Handler();
+    new \AssessmentReports\Report_Display();
+});
