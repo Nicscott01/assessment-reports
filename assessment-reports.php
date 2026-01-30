@@ -24,10 +24,13 @@ require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-post-type.php';
 require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-meta-box.php';
 require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-submission-handler.php';
 require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-report-display.php';
+require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-cli.php';
+require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/helper-functions.php';
 
 add_action('plugins_loaded', function () {
     new \AssessmentReports\Post_Type();
     new \AssessmentReports\Meta_Box();
     new \AssessmentReports\Submission_Handler();
     new \AssessmentReports\Report_Display();
+    new \AssessmentReports\CLI_Command();
 });

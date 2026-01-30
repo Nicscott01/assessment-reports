@@ -104,9 +104,6 @@ class Meta_Box
 
         echo '<div class="ar-field-mappings">';
         foreach ($fields as $field) {
-            if (defined('WP_DEBUG') && WP_DEBUG && isset($_GET['ar_debug_mapping'])) {
-                error_log('AR field debug: ' . print_r($field, true));
-            }
             $field_type = $field['element'] ?? $field['type'] ?? '';
             if (! in_array($field_type, ['input_checkbox', 'input_radio'], true)) {
                 continue;

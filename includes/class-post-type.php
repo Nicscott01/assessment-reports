@@ -37,14 +37,17 @@ class Post_Type
 
         register_post_type(self::POST_TYPE, [
             'labels'             => $labels,
-            'public'             => false,
+            'public'             => true,
             'show_ui'            => true,
             'show_in_menu'       => true,
             'capability_type'    => 'post',
             'hierarchical'       => true,
             'supports'           => ['title', 'editor', 'page-attributes'],
             'has_archive'        => false,
-            'rewrite'            => false,
+            'rewrite'            => [
+                'slug' => 'reports',
+                'with_front' => false,
+            ],
             'menu_icon'          => 'dashicons-analytics',
         ]);
     }
