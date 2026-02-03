@@ -126,6 +126,7 @@ class AI_Generator
             return;
         }
 
+        // Mark running only once to avoid duplicate queue work.
         Helper::setSubmissionMeta($entry_id, 'ai_generation_status', 'running');
         Helper::setSubmissionMeta($entry_id, 'ai_generation_error', '');
 
@@ -134,11 +135,30 @@ class AI_Generator
             ar_set_ai_generated_content($entry_id, $ai_content);
             Helper::setSubmissionMeta($entry_id, 'ai_generation_timestamp', time());
             Helper::setSubmissionMeta($entry_id, 'ai_generation_status', 'ready');
+            /**
+             * Fires when AI generation for an entry has completed successfully.
+             *
+             * @param int    $report_id  The report post ID.
+             * @param int    $entry_id   The Fluent Forms submission/entry ID.
+             * @param string $entry_hash Public hash for the entry (FluentForms _entry_uid_hash when available).
+             */
+            $entry_hash = Helper::getSubmissionMeta($entry_id, '_entry_uid_hash');
+            if (! $entry_hash) {
+                $entry_hash = ar_encode_entry_hash($entry_id);
+            }
+            do_action('assessment_reports_ai_generation_completed', $report_id, $entry_id, $entry_hash);
             return;
         }
 
         Helper::setSubmissionMeta($entry_id, 'ai_generation_status', 'failed');
         Helper::setSubmissionMeta($entry_id, 'ai_generation_error', 'generation_failed');
+        /**
+         * Fires when AI generation for an entry fails.
+         *
+         * @param int $report_id The report post ID.
+         * @param int $entry_id  The Fluent Forms submission/entry ID.
+         */
+        do_action('assessment_reports_ai_generation_failed', $report_id, $entry_id);
     }
 
     private function enqueue_generation($report_id, $entry_id)

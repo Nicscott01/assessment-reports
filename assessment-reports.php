@@ -58,3 +58,40 @@ add_action('plugins_loaded', function () {
     new \AssessmentReports\Content_Filters();
     new \AssessmentReports\FluentForm_Smartcodes();
 });
+
+add_action('fluentform_loaded', function ($app = null) {
+    if (
+        class_exists('\FluentForm\App\Services\Integrations\IntegrationManager') &&
+        class_exists('\FluentForm\Framework\Foundation\Application')
+    ) {
+        assessment_reports_bootstrap_fcrm_integration($app);
+    }
+});
+
+add_action('plugins_loaded', function () {
+    if (
+        class_exists('\FluentForm\App\Services\Integrations\IntegrationManager') &&
+        class_exists('\FluentForm\Framework\Foundation\Application')
+    ) {
+        assessment_reports_bootstrap_fcrm_integration();
+    }
+}, 20);
+
+function assessment_reports_bootstrap_fcrm_integration($app = null)
+{
+    static $booted = false;
+    if ($booted) {
+        return;
+    }
+
+    $application = $app;
+    if (! $application instanceof \FluentForm\Framework\Foundation\Application) {
+        $application = \FluentForm\Framework\Foundation\Application::getInstance();
+    }
+
+    if ($application instanceof \FluentForm\Framework\Foundation\Application) {
+        require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-fluentcrm-integration.php';
+        new \AssessmentReports\FluentCRM_Integration($application);
+        $booted = true;
+    }
+}
