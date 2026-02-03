@@ -85,6 +85,25 @@ class Submission_Handler
         if ($encoded) {
             Helper::setSubmissionMeta($entry_id, 'top_report_sections', $encoded, $form_id);
         }
+
+        // Kick off AI generation asynchronously if not already completed.
+        $ai_status = Helper::getSubmissionMeta($entry_id, 'ai_generation_status');
+        if (! in_array($ai_status, ['ready', 'running'], true)) {
+            Helper::setSubmissionMeta($entry_id, 'ai_generation_status', 'pending', $form_id);
+            Helper::setSubmissionMeta($entry_id, 'ai_generation_error', '', $form_id);
+            // Prevent duplicate queueing across hooks/requests.
+            $already_enqueued = Helper::getSubmissionMeta($entry_id, 'ai_generation_enqueued');
+            if (! did_action('assessment_reports_ai_enqueued_' . $entry_id) && $already_enqueued !== 'yes') {
+                ar_enqueue_ai_generation($report->ID, $entry_id);
+                do_action('assessment_reports_ai_enqueued_' . $entry_id);
+                Helper::setSubmissionMeta($entry_id, 'ai_generation_enqueued', 'yes', $form_id);
+            }
+
+            if (! did_action('assessment_reports_pending_contact_' . $entry_id)) {
+                do_action('assessment_reports_submission_pending', $entry_id, $form_data, $form);
+                do_action('assessment_reports_pending_contact_' . $entry_id);
+            }
+        }
     }
 
     private function get_report_by_form($form_id)

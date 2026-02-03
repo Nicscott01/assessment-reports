@@ -201,7 +201,7 @@ function get_report_link_by_entry_id($entry_id, $page_url = '')
         $page_url = home_url('/');
     }
 
-    return add_query_arg('entry', $hash, $page_url);
+    return add_query_arg('entry_hash', $hash, $page_url);
 }
 
 /**
@@ -790,4 +790,26 @@ function ar_get_quiz_score($entry_id)
     }
 
     return $score;
+}
+
+/**
+ * Enqueue AI generation for a report/entry pair via ActionScheduler.
+ *
+ * @param int $report_id
+ * @param int $entry_id
+ */
+function ar_enqueue_ai_generation($report_id, $entry_id)
+{
+    $report_id = absint($report_id);
+    $entry_id = absint($entry_id);
+    if (! $report_id || ! $entry_id) {
+        return;
+    }
+
+    if (function_exists('as_enqueue_async_action')) {
+        as_enqueue_async_action('assessment_reports_generate_ai', [$report_id, $entry_id], 'assessment-reports');
+        return;
+    }
+
+    wp_schedule_single_event(time(), 'assessment_reports_generate_ai', [$report_id, $entry_id]);
 }
