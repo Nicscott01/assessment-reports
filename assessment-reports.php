@@ -51,7 +51,15 @@ add_action('init', function () {
     \WordPress\AI_Client\AI_Client::init();
 });
 
-add_action('plugins_loaded', function () {
+add_action('init', function () {
+    load_plugin_textdomain(
+        'assessment-reports',
+        false,
+        dirname(plugin_basename(__FILE__)) . '/languages'
+    );
+}, 0);
+
+add_action('init', function () {
     new \AssessmentReports\Post_Type();
     new \AssessmentReports\Meta_Box();
     new \AssessmentReports\Submission_Handler();
@@ -61,9 +69,9 @@ add_action('plugins_loaded', function () {
     new \AssessmentReports\AI_Generator();
     new \AssessmentReports\Content_Filters();
     new \AssessmentReports\FluentForm_Smartcodes();
-});
+}, 5);
 
-add_action('fluentform_loaded', function ($app = null) {
+add_action('fluentform/loaded', function ($app = null) {
     if (
         class_exists('\FluentForm\App\Services\Integrations\IntegrationManager') &&
         class_exists('\FluentForm\Framework\Foundation\Application')
@@ -85,6 +93,13 @@ function assessment_reports_bootstrap_fcrm_integration($app = null)
 {
     static $booted = false;
     if ($booted) {
+        return;
+    }
+
+    if (! did_action('init')) {
+        add_action('init', function () use ($app) {
+            assessment_reports_bootstrap_fcrm_integration($app);
+        }, 11);
         return;
     }
 
