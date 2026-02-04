@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Assessment Reports
  * Description: Maps Fluent Forms quiz responses to dynamic report sections and surfaces personalized report content.
- * Version: 1.0.1
+ * Version: 1.0.2
  * Author: Nic Scott
  * Text Domain: assessment-reports
  * License: GPL-2.0+
@@ -21,7 +21,7 @@ if (! defined('ASSESSMENT_REPORTS_PLUGIN_URL')) {
 }
 
 if (! defined('ASSESSMENT_REPORTS_VERSION')) {
-    define('ASSESSMENT_REPORTS_VERSION', '1.0.1');
+    define('ASSESSMENT_REPORTS_VERSION', '1.0.2');
 }
 
 if (file_exists(ASSESSMENT_REPORTS_PLUGIN_DIR . 'vendor/autoload.php')) {
