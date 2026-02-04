@@ -190,13 +190,14 @@ class Content_Filters
     {
         $js_path = ASSESSMENT_REPORTS_PLUGIN_DIR . 'assets/report-ai.js';
         $css_path = ASSESSMENT_REPORTS_PLUGIN_DIR . 'assets/report-ai.css';
+        $asset_version = defined('ASSESSMENT_REPORTS_VERSION') ? ASSESSMENT_REPORTS_VERSION : null;
 
         if (file_exists($css_path)) {
             wp_enqueue_style(
                 'assessment-reports-report-ai',
                 ASSESSMENT_REPORTS_PLUGIN_URL . 'assets/report-ai.css',
                 [],
-                filemtime($css_path)
+                $asset_version
             );
         }
 
@@ -205,7 +206,7 @@ class Content_Filters
                 'assessment-reports-report-ai',
                 ASSESSMENT_REPORTS_PLUGIN_URL . 'assets/report-ai.js',
                 [],
-                filemtime($js_path),
+                $asset_version,
                 true
             );
 

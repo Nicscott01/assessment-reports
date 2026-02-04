@@ -492,13 +492,14 @@ class Meta_Box
         $js_path = ASSESSMENT_REPORTS_PLUGIN_DIR . 'assets/admin.js';
         $css_path = ASSESSMENT_REPORTS_PLUGIN_DIR . 'assets/admin.css';
         $ai_js_path = ASSESSMENT_REPORTS_PLUGIN_DIR . 'assets/admin-ai.js';
+        $asset_version = defined('ASSESSMENT_REPORTS_VERSION') ? ASSESSMENT_REPORTS_VERSION : null;
 
         if (file_exists($js_path)) {
             wp_enqueue_script(
                 'assessment-reports-admin',
                 ASSESSMENT_REPORTS_PLUGIN_URL . 'assets/admin.js',
                 [],
-                filemtime($js_path),
+                $asset_version,
                 true
             );
         }
@@ -508,7 +509,7 @@ class Meta_Box
                 'assessment-reports-admin-ai',
                 ASSESSMENT_REPORTS_PLUGIN_URL . 'assets/admin-ai.js',
                 [],
-                filemtime($ai_js_path),
+                $asset_version,
                 true
             );
         }
@@ -518,7 +519,7 @@ class Meta_Box
                 'assessment-reports-admin',
                 ASSESSMENT_REPORTS_PLUGIN_URL . 'assets/admin.css',
                 [],
-                filemtime($css_path)
+                $asset_version
             );
         }
     }
