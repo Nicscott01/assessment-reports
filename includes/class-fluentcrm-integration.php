@@ -250,11 +250,13 @@ class FluentCRM_Integration extends IntegrationManager
 
     public function notify($feed, $formData, $entry, $form)
     {
-        if (empty($feed['enabled'])) {
+        $settings = $feed['settings'] ?? $feed;
+
+        if (empty($settings['enabled'])) {
             return $entry;
         }
 
-        $payload = $this->build_feed_payload($feed, $form);
+        $payload = $this->build_feed_payload($settings, $form);
         $existing = Helper::getSubmissionMeta($entry->id, self::META_KEY_FEED);
         if (! $existing && $payload) {
             Helper::setSubmissionMeta(
@@ -264,6 +266,9 @@ class FluentCRM_Integration extends IntegrationManager
             );
         }
 
+        // Mark async feed as completed for FluentForms API Call logs.
+        do_action('fluentform/integration_action_result', $feed, 'success', 'completed');
+
         return $entry;
     }
 
@@ -271,6 +276,11 @@ class FluentCRM_Integration extends IntegrationManager
     {
         $entry_id = absint($entry_id);
         if (! $entry_id || empty($form) || empty($form->id)) {
+            return;
+        }
+
+        $ai_status = Helper::getSubmissionMeta($entry_id, 'ai_generation_status');
+        if ($ai_status === 'ready') {
             return;
         }
 
