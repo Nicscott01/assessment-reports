@@ -1,5 +1,5 @@
 {
-    "name": "assessment-reports/assessment-reports",
+    "name": "nicscott01/assessment-reports",
     "description": "Assessment Reports plugin dependencies",
     "type": "wordpress-plugin",
     "require": {
