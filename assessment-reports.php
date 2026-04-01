@@ -36,6 +36,8 @@ if (! function_exists('as_enqueue_async_action')) {
 }
 
 require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-post-type.php';
+require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-score-profiles.php';
+require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-score-engine.php';
 require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-meta-box.php';
 require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-submission-handler.php';
 require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-report-display.php';
@@ -61,6 +63,7 @@ add_action('init', function () {
 
 add_action('init', function () {
     new \AssessmentReports\Post_Type();
+    new \AssessmentReports\Score_Profiles();
     new \AssessmentReports\Meta_Box();
     new \AssessmentReports\Submission_Handler();
     new \AssessmentReports\Report_Display();

@@ -27,11 +27,7 @@ class Report_Display
         }
 
         $report_data = $this->get_top_sections($entry_id);
-        if (empty($report_data)) {
-            return $this->render_message(__('No report data is available yet.', 'assessment-reports'));
-        }
-
-        $parent_id = $report_data[0]['parent_id'] ?? 0;
+        $parent_id = ar_get_report_id_by_entry_id($entry_id);
         $report = get_post($parent_id);
         if (! $report || $report->post_type !== Post_Type::POST_TYPE) {
             return $this->render_message(__('Unable to locate the selected report.', 'assessment-reports'));
@@ -96,20 +92,9 @@ class Report_Display
 
     private function get_top_sections($entry_id)
     {
-        $raw = Helper::getSubmissionMeta($entry_id, 'top_report_sections');
-        if (! $raw) {
-            return [];
-        }
+        $sections = get_top_sections_by_entry_id($entry_id);
 
-        if (is_string($raw)) {
-            $decoded = json_decode($raw, true);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                return [];
-            }
-            return $decoded;
-        }
-
-        return is_array($raw) ? $raw : [];
+        return is_array($sections) ? $sections : [];
     }
 
     private function render_message($message)

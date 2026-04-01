@@ -22,6 +22,7 @@ class CLI_Command
         \WP_CLI::add_command('assessment-reports test-submit', [$this, 'test_submit']);
         \WP_CLI::add_command('assessment-reports rerun-actions', [$this, 'rerun_actions']);
         \WP_CLI::add_command('assessment-reports trigger-complete', [$this, 'trigger_complete']);
+        \WP_CLI::add_command('assessment-reports dump-score-payload', [$this, 'dump_score_payload']);
     }
 
     public function reprocess_entry($args)
@@ -242,5 +243,38 @@ class CLI_Command
             $report_id,
             $hash
         ));
+    }
+
+    /**
+     * Dump the stored score payload and selected sections for an entry.
+     *
+     * ## OPTIONS
+     *
+     * --entry=<id>
+     * : The Fluent Forms submission ID.
+     */
+    public function dump_score_payload($args, $assoc_args)
+    {
+        $entry_id = isset($assoc_args['entry']) ? absint($assoc_args['entry']) : 0;
+        if (! $entry_id) {
+            \WP_CLI::error('Please provide --entry=<id>.');
+            return;
+        }
+
+        $mode = ar_get_report_mode_by_entry_id($entry_id);
+        $report_id = ar_get_report_id_by_entry_id($entry_id);
+        $payload = ar_get_score_payload_by_entry_id($entry_id);
+        $section_ids = ar_get_selected_section_ids_by_entry_id($entry_id);
+
+        \WP_CLI::log('mode: ' . $mode);
+        \WP_CLI::log('report_id: ' . ($report_id ?: '(none)'));
+        \WP_CLI::log('selected_section_ids: ' . wp_json_encode($section_ids));
+
+        if (empty($payload)) {
+            \WP_CLI::warning('No score payload stored for this entry.');
+            return;
+        }
+
+        \WP_CLI::line(wp_json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 }

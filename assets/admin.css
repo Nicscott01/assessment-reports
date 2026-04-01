@@ -95,3 +95,29 @@
 .ar-ai-context-fields {
     margin-bottom: 12px;
 }
+
+.ar-score-profiles {
+    display: grid;
+    gap: 20px;
+}
+
+.ar-score-profile-card {
+    border: 1px solid #ccd0d4;
+    background: #fff;
+    padding: 16px;
+}
+
+.ar-score-rules-table th,
+.ar-score-rules-table td {
+    vertical-align: top;
+}
+
+.ar-inline-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ar-json-editor {
+    font-family: Consolas, Monaco, monospace;
+}

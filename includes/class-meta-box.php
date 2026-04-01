@@ -51,8 +51,11 @@ class Meta_Box
         wp_nonce_field('ar_report_meta_box', 'ar_report_meta_nonce');
 
         $selected_form = get_post_meta($post->ID, '_report_form_id', true);
+        $report_mode = $this->get_report_mode($post->ID);
+        $selected_profile = get_post_meta($post->ID, '_score_profile_id', true);
         $closing_content = get_post_meta($post->ID, '_report_closing_content', true);
         $forms = $this->get_available_forms();
+        $profiles = Score_Profiles::get_profile_options();
         ?>
         <p>
             <label for="assessment_report_form_id"><?php esc_html_e('Fluent Form', 'assessment-reports'); ?></label>
@@ -64,6 +67,36 @@ class Meta_Box
                     </option>
                 <?php endforeach; ?>
             </select>
+        </p>
+        <p>
+            <label for="assessment_report_mode"><?php esc_html_e('Report Mode', 'assessment-reports'); ?></label>
+            <select name="assessment_report_mode" id="assessment_report_mode" class="widefat">
+                <option value="legacy_response_mapped" <?php selected($report_mode, 'legacy_response_mapped'); ?>>
+                    <?php esc_html_e('Legacy Response Mapped', 'assessment-reports'); ?>
+                </option>
+                <option value="score_driven" <?php selected($report_mode, 'score_driven'); ?>>
+                    <?php esc_html_e('Score Driven', 'assessment-reports'); ?>
+                </option>
+            </select>
+            <span class="description"><?php esc_html_e('Legacy reports use field mappings. Score-driven reports use a saved score profile and section rules.', 'assessment-reports'); ?></span>
+        </p>
+        <p>
+            <label for="assessment_score_profile_id"><?php esc_html_e('Score Profile', 'assessment-reports'); ?></label>
+            <select name="assessment_score_profile_id" id="assessment_score_profile_id" class="widefat">
+                <option value=""><?php esc_html_e('Select a Score Profile', 'assessment-reports'); ?></option>
+                <?php foreach ($profiles as $profile_id => $label) : ?>
+                    <option value="<?php echo esc_attr($profile_id); ?>" <?php selected($selected_profile, $profile_id); ?>>
+                        <?php echo esc_html($label); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <span class="description">
+                <?php
+                echo $profiles
+                    ? esc_html__('Only used when the report mode is score-driven.', 'assessment-reports')
+                    : esc_html__('No score profiles found yet. Create one under Reports > Score Profiles before using score-driven mode.', 'assessment-reports');
+                ?>
+            </span>
         </p>
         <p>
             <label for="assessment_report_closing_content"><?php esc_html_e('Closing content', 'assessment-reports'); ?></label>
@@ -95,6 +128,13 @@ class Meta_Box
         }
 
         $form_id = get_post_meta($parent_id, '_report_form_id', true);
+        $report_mode = $this->get_report_mode($parent_id);
+
+        if ($report_mode === 'score_driven') {
+            $this->render_score_rules_meta_box($post, $parent_id);
+            return;
+        }
+
         if (! $form_id) {
             echo '<p>' . esc_html__('Please select a Fluent Form on the parent Report first.', 'assessment-reports') . '</p>';
             return;
@@ -203,6 +243,19 @@ class Meta_Box
             delete_post_meta($post_id, '_report_form_id');
         }
 
+        $report_mode = isset($_POST['assessment_report_mode']) ? sanitize_key(wp_unslash($_POST['assessment_report_mode'])) : 'legacy_response_mapped';
+        if (! in_array($report_mode, [ 'legacy_response_mapped', 'score_driven' ], true)) {
+            $report_mode = 'legacy_response_mapped';
+        }
+        update_post_meta($post_id, '_report_mode', $report_mode);
+
+        $score_profile_id = isset($_POST['assessment_score_profile_id']) ? sanitize_key(wp_unslash($_POST['assessment_score_profile_id'])) : '';
+        if ($score_profile_id !== '') {
+            update_post_meta($post_id, '_score_profile_id', $score_profile_id);
+        } else {
+            delete_post_meta($post_id, '_score_profile_id');
+        }
+
         $closing_content = isset($_POST['assessment_report_closing_content']) ? wp_kses_post(wp_unslash($_POST['assessment_report_closing_content'])) : '';
         if ($closing_content !== '') {
             update_post_meta($post_id, '_report_closing_content', $closing_content);
@@ -218,6 +271,12 @@ class Meta_Box
         }
 
         if (! current_user_can('edit_post', $post_id)) {
+            return;
+        }
+
+        $parent_id = wp_get_post_parent_id($post_id);
+        if ($parent_id && $this->get_report_mode($parent_id) === 'score_driven') {
+            $this->save_score_rules_meta($post_id);
             return;
         }
 
@@ -246,6 +305,179 @@ class Meta_Box
             update_post_meta($post_id, '_field_mappings', $mappings);
         } else {
             delete_post_meta($post_id, '_field_mappings');
+        }
+    }
+
+    private function render_score_rules_meta_box($post, $parent_id)
+    {
+        $profile_id = get_post_meta($parent_id, '_score_profile_id', true);
+        $profile = $profile_id ? Score_Profiles::get_profile($profile_id) : null;
+        if (! $profile) {
+            echo '<p>' . esc_html__('Select a score profile on the parent report before configuring score-driven section rules.', 'assessment-reports') . '</p>';
+            return;
+        }
+
+        $saved = get_post_meta($post->ID, '_score_section_rules', true);
+        if (! is_array($saved)) {
+            $saved = [];
+        }
+
+        $always_include = ! empty($saved['always_include']);
+        $priority = isset($saved['priority']) ? (int) $saved['priority'] : 0;
+        $match_type = isset($saved['match_type']) && $saved['match_type'] === 'any' ? 'any' : 'all';
+        $conditions = isset($saved['conditions']) && is_array($saved['conditions']) ? $saved['conditions'] : [];
+        if (empty($conditions)) {
+            $conditions = [
+                [
+                    'path' => 'summary.category_key',
+                    'operator' => 'equals',
+                    'value' => '',
+                ],
+            ];
+        }
+
+        ?>
+        <p class="description">
+            <?php esc_html_e('This section is selected from the computed score payload instead of raw form answers.', 'assessment-reports'); ?>
+        </p>
+        <p>
+            <label>
+                <input type="checkbox" name="score_rules[always_include]" value="1" <?php checked($always_include); ?>>
+                <?php esc_html_e('Always include this section', 'assessment-reports'); ?>
+            </label>
+        </p>
+        <p>
+            <label for="ar-score-priority-<?php echo esc_attr($post->ID); ?>" class="ar-field-label"><?php esc_html_e('Priority', 'assessment-reports'); ?></label>
+            <input
+                id="ar-score-priority-<?php echo esc_attr($post->ID); ?>"
+                type="number"
+                name="score_rules[priority]"
+                min="-100"
+                max="100"
+                step="1"
+                value="<?php echo esc_attr($priority); ?>"
+            >
+            <span class="description"><?php esc_html_e('Higher priority sections are returned earlier in the selected-section helper.', 'assessment-reports'); ?></span>
+        </p>
+        <p>
+            <label for="ar-score-match-type-<?php echo esc_attr($post->ID); ?>" class="ar-field-label"><?php esc_html_e('Condition Matching', 'assessment-reports'); ?></label>
+            <select id="ar-score-match-type-<?php echo esc_attr($post->ID); ?>" name="score_rules[match_type]">
+                <option value="all" <?php selected($match_type, 'all'); ?>><?php esc_html_e('All conditions must match', 'assessment-reports'); ?></option>
+                <option value="any" <?php selected($match_type, 'any'); ?>><?php esc_html_e('Any condition may match', 'assessment-reports'); ?></option>
+            </select>
+        </p>
+        <table class="widefat striped ar-score-rules-table">
+            <thead>
+                <tr>
+                    <th><?php esc_html_e('Payload Path', 'assessment-reports'); ?></th>
+                    <th><?php esc_html_e('Operator', 'assessment-reports'); ?></th>
+                    <th><?php esc_html_e('Value', 'assessment-reports'); ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($conditions as $index => $condition) : ?>
+                    <tr>
+                        <td>
+                            <input
+                                type="text"
+                                class="widefat"
+                                name="score_rules[conditions][<?php echo esc_attr($index); ?>][path]"
+                                value="<?php echo esc_attr($condition['path'] ?? ''); ?>"
+                                placeholder="summary.category_key"
+                            >
+                        </td>
+                        <td>
+                            <select name="score_rules[conditions][<?php echo esc_attr($index); ?>][operator]">
+                                <?php foreach ($this->get_score_rule_operators() as $operator => $label) : ?>
+                                    <option value="<?php echo esc_attr($operator); ?>" <?php selected($condition['operator'] ?? 'equals', $operator); ?>>
+                                        <?php echo esc_html($label); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                        <td>
+                            <input
+                                type="text"
+                                class="widefat"
+                                name="score_rules[conditions][<?php echo esc_attr($index); ?>][value]"
+                                value="<?php echo esc_attr($this->stringify_rule_value($condition['value'] ?? '')); ?>"
+                                placeholder="specific_need"
+                            >
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php for ($blank = 0; $blank < 2; $blank++) : ?>
+                    <?php $row_index = count($conditions) + $blank; ?>
+                    <tr>
+                        <td><input type="text" class="widefat" name="score_rules[conditions][<?php echo esc_attr($row_index); ?>][path]" value="" placeholder="readiness.percent"></td>
+                        <td>
+                            <select name="score_rules[conditions][<?php echo esc_attr($row_index); ?>][operator]">
+                                <?php foreach ($this->get_score_rule_operators() as $operator => $label) : ?>
+                                    <option value="<?php echo esc_attr($operator); ?>" <?php selected('equals', $operator); ?>>
+                                        <?php echo esc_html($label); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                        <td><input type="text" class="widefat" name="score_rules[conditions][<?php echo esc_attr($row_index); ?>][value]" value="" placeholder="70"></td>
+                    </tr>
+                <?php endfor; ?>
+            </tbody>
+        </table>
+        <p class="description">
+            <?php esc_html_e('Use payload paths such as `summary.category_key`, `summary.percent`, `maslow.values.safety`, `wellness.values.spiritual`, `sdoh.values.access_to_community`, or `readiness.percent`.', 'assessment-reports'); ?>
+        </p>
+        <p class="description">
+            <?php
+            printf(
+                /* translators: %s: score profile name */
+                esc_html__('This section uses score profile "%s".', 'assessment-reports'),
+                esc_html($profile['name'] ?? $profile_id)
+            );
+            ?>
+        </p>
+        <?php
+    }
+
+    private function save_score_rules_meta($post_id)
+    {
+        $rules = isset($_POST['score_rules']) && is_array($_POST['score_rules']) ? wp_unslash($_POST['score_rules']) : [];
+        $conditions = [];
+
+        if (! empty($rules['conditions']) && is_array($rules['conditions'])) {
+            foreach ($rules['conditions'] as $condition) {
+                if (! is_array($condition)) {
+                    continue;
+                }
+
+                $path = isset($condition['path']) ? sanitize_text_field($condition['path']) : '';
+                $operator = isset($condition['operator']) ? sanitize_key($condition['operator']) : 'equals';
+                $raw_value = isset($condition['value']) ? trim((string) $condition['value']) : '';
+
+                if ($path === '' || $raw_value === '') {
+                    continue;
+                }
+
+                $value = $this->parse_score_rule_value($operator, $raw_value);
+                $conditions[] = [
+                    'path' => $path,
+                    'operator' => $operator,
+                    'value' => $value,
+                ];
+            }
+        }
+
+        $payload = [
+            'always_include' => ! empty($rules['always_include']) ? 1 : 0,
+            'priority' => isset($rules['priority']) ? (int) $rules['priority'] : 0,
+            'match_type' => isset($rules['match_type']) && $rules['match_type'] === 'any' ? 'any' : 'all',
+            'conditions' => $conditions,
+        ];
+
+        if ($payload['always_include'] || ! empty($payload['conditions'])) {
+            update_post_meta($post_id, '_score_section_rules', $payload);
+        } else {
+            delete_post_meta($post_id, '_score_section_rules');
         }
     }
 
@@ -555,5 +787,43 @@ class Meta_Box
         }
 
         return $fields['fields'] ?? [];
+    }
+
+    private function get_report_mode($post_id)
+    {
+        $mode = get_post_meta($post_id, '_report_mode', true);
+
+        return $mode === 'score_driven' ? 'score_driven' : 'legacy_response_mapped';
+    }
+
+    private function get_score_rule_operators()
+    {
+        return [
+            'equals' => __('Equals', 'assessment-reports'),
+            'not_equals' => __('Does Not Equal', 'assessment-reports'),
+            'gt' => __('Greater Than', 'assessment-reports'),
+            'gte' => __('Greater Than or Equal To', 'assessment-reports'),
+            'lt' => __('Less Than', 'assessment-reports'),
+            'lte' => __('Less Than or Equal To', 'assessment-reports'),
+            'contains' => __('Contains', 'assessment-reports'),
+        ];
+    }
+
+    private function parse_score_rule_value($operator, $raw_value)
+    {
+        if (in_array($operator, [ 'gt', 'gte', 'lt', 'lte' ], true)) {
+            return (float) $raw_value;
+        }
+
+        return sanitize_text_field($raw_value);
+    }
+
+    private function stringify_rule_value($value)
+    {
+        if (is_array($value)) {
+            return wp_json_encode($value);
+        }
+
+        return (string) $value;
     }
 }

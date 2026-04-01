@@ -38,6 +38,12 @@ class Submission_Handler
             return;
         }
 
+        $report_mode = $this->get_report_mode($report->ID);
+        if ($report_mode === 'score_driven') {
+            $this->handle_score_driven_submission($entry_id, $form_data, $form, $report, $form_id);
+            return;
+        }
+
         $sections = get_posts([
             'post_type'      => Post_Type::POST_TYPE,
             'post_parent'    => $report->ID,
@@ -86,24 +92,8 @@ class Submission_Handler
             Helper::setSubmissionMeta($entry_id, 'top_report_sections', $encoded, $form_id);
         }
 
-        // Kick off AI generation asynchronously if not already completed.
-        $ai_status = Helper::getSubmissionMeta($entry_id, 'ai_generation_status');
-        if (! in_array($ai_status, ['ready', 'running'], true)) {
-            Helper::setSubmissionMeta($entry_id, 'ai_generation_status', 'pending', $form_id);
-            Helper::setSubmissionMeta($entry_id, 'ai_generation_error', '', $form_id);
-            // Prevent duplicate queueing across hooks/requests.
-            $already_enqueued = Helper::getSubmissionMeta($entry_id, 'ai_generation_enqueued');
-            if (! did_action('assessment_reports_ai_enqueued_' . $entry_id) && $already_enqueued !== 'yes') {
-                ar_enqueue_ai_generation($report->ID, $entry_id);
-                do_action('assessment_reports_ai_enqueued_' . $entry_id);
-                Helper::setSubmissionMeta($entry_id, 'ai_generation_enqueued', 'yes', $form_id);
-            }
-
-            if (! did_action('assessment_reports_pending_contact_' . $entry_id)) {
-                do_action('assessment_reports_submission_pending', $entry_id, $form_data, $form);
-                do_action('assessment_reports_pending_contact_' . $entry_id);
-            }
-        }
+        Helper::setSubmissionMeta($entry_id, 'ar_report_mode', 'legacy_response_mapped', $form_id);
+        $this->maybe_queue_ai_generation($entry_id, $form_id, $report, $form_data, $form);
     }
 
     private function get_report_by_form($form_id)
@@ -131,6 +121,75 @@ class Submission_Handler
         $context_string = json_encode($context);
 
         error_log(sprintf('Assessment Reports debug: %s | %s', $message, $context_string));
+    }
+
+    private function handle_score_driven_submission($entry_id, $form_data, $form, $report, $form_id)
+    {
+        $profile_id = get_post_meta($report->ID, '_score_profile_id', true);
+        $profile = $profile_id ? Score_Profiles::get_profile($profile_id) : null;
+        if (! $profile) {
+            $this->log_debug('missing score profile', $entry_id, $form_id, [
+                'report_id' => $report->ID,
+                'profile_id' => $profile_id,
+            ]);
+            return;
+        }
+
+        $normalized_data = $this->normalize_submission_data($form_data);
+        $engine = new Score_Engine($profile);
+        $payload = $engine->compute_payload($normalized_data);
+
+        if (! $payload) {
+            $this->log_debug('score payload empty', $entry_id, $form_id, [
+                'report_id' => $report->ID,
+                'profile_id' => $profile_id,
+            ]);
+            return;
+        }
+
+        $selected_sections = $engine->select_sections($report->ID, $payload);
+        $selected_section_ids = array_values(array_map('absint', wp_list_pluck($selected_sections, 'section_id')));
+
+        $payload['report_id'] = absint($report->ID);
+        $payload['selected_section_ids'] = $selected_section_ids;
+
+        Helper::setSubmissionMeta($entry_id, 'ar_report_mode', 'score_driven', $form_id);
+        Helper::setSubmissionMeta($entry_id, 'ar_score_profile_id', $profile_id, $form_id);
+        Helper::setSubmissionMeta($entry_id, 'ar_report_id', $report->ID, $form_id);
+        Helper::setSubmissionMeta($entry_id, 'ar_selected_section_ids', wp_json_encode($selected_section_ids), $form_id);
+        Helper::setSubmissionMeta($entry_id, 'ar_score_payload', wp_json_encode($payload), $form_id);
+
+        $this->maybe_queue_ai_generation($entry_id, $form_id, $report, $form_data, $form);
+    }
+
+    private function maybe_queue_ai_generation($entry_id, $form_id, $report, $form_data, $form)
+    {
+        $ai_status = Helper::getSubmissionMeta($entry_id, 'ai_generation_status');
+        if (in_array($ai_status, ['ready', 'running'], true)) {
+            return;
+        }
+
+        Helper::setSubmissionMeta($entry_id, 'ai_generation_status', 'pending', $form_id);
+        Helper::setSubmissionMeta($entry_id, 'ai_generation_error', '', $form_id);
+
+        $already_enqueued = Helper::getSubmissionMeta($entry_id, 'ai_generation_enqueued');
+        if (! did_action('assessment_reports_ai_enqueued_' . $entry_id) && $already_enqueued !== 'yes') {
+            ar_enqueue_ai_generation($report->ID, $entry_id);
+            do_action('assessment_reports_ai_enqueued_' . $entry_id);
+            Helper::setSubmissionMeta($entry_id, 'ai_generation_enqueued', 'yes', $form_id);
+        }
+
+        if (! did_action('assessment_reports_pending_contact_' . $entry_id)) {
+            do_action('assessment_reports_submission_pending', $entry_id, $form_data, $form);
+            do_action('assessment_reports_pending_contact_' . $entry_id);
+        }
+    }
+
+    private function get_report_mode($report_id)
+    {
+        $mode = get_post_meta($report_id, '_report_mode', true);
+
+        return $mode === 'score_driven' ? 'score_driven' : 'legacy_response_mapped';
     }
 
     private function calculate_section_score(array $submission_data, array $mappings)
@@ -225,21 +284,7 @@ class Submission_Handler
             return null;
         }
 
-        $raw = Helper::getSubmissionMeta($entry_id, 'top_report_sections');
-        
-        if (! $raw) {
-            return null;
-        }
-
-        if (is_string($raw)) {
-            $decoded = json_decode($raw, true);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                return null;
-            }
-            return $decoded;
-        }
-
-        return is_array($raw) ? $raw : null;
+        return get_top_sections_by_entry_id($entry_id);
     }
     
 }
