@@ -46,6 +46,7 @@ require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-settings.php';
 require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-ai-generator.php';
 require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-content-filters.php';
 require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-fluentform-smartcodes.php';
+require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/class-entry-report-metabox.php';
 require_once ASSESSMENT_REPORTS_PLUGIN_DIR . 'includes/helper-functions.php';
 
 add_action('init', function () {
@@ -72,6 +73,7 @@ add_action('init', function () {
     new \AssessmentReports\AI_Generator();
     new \AssessmentReports\Content_Filters();
     new \AssessmentReports\FluentForm_Smartcodes();
+    new \AssessmentReports\Entry_Report_Metabox();
 }, 5);
 
 add_action('fluentform/loaded', function ($app = null) {

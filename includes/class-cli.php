@@ -25,11 +25,42 @@ class CLI_Command
         \WP_CLI::add_command('assessment-reports dump-score-payload', [$this, 'dump_score_payload']);
     }
 
-    public function reprocess_entry($args)
+    /**
+     * Rebuild report meta for an existing submission from its saved response data.
+     *
+     * ## OPTIONS
+     *
+     * [<entry_id>]
+     * : The Fluent Forms submission ID.
+     *
+     * [--entry=<id>]
+     * : The Fluent Forms submission ID.
+     *
+     * [--reset-ai]
+     * : Also clear AI generation state/content before reprocessing.
+     *
+     * [--keep-existing-meta]
+     * : Skip clearing existing Assessment Reports submission meta before reprocessing.
+     *
+     * ## EXAMPLES
+     *
+     * wp assessment-reports reprocess-entry 123
+     * wp assessment-reports reprocess-entry --entry=123 --reset-ai
+     */
+    public function reprocess_entry($args, $assoc_args)
     {
-        $entry_id = isset($args[0]) ? absint($args[0]) : 0;
+        $entry_id = isset($assoc_args['entry']) ? absint($assoc_args['entry']) : 0;
+        if (! $entry_id) {
+            $entry_id = isset($args[0]) ? absint($args[0]) : 0;
+        }
+
         if (! $entry_id) {
             \WP_CLI::error('Please provide a Fluent Forms submission ID.');
+            return;
+        }
+
+        if (! function_exists('fluentFormApi')) {
+            \WP_CLI::error('Fluent Forms is not available.');
             return;
         }
 
@@ -62,10 +93,28 @@ class CLI_Command
 
         $form_data = is_array($response) ? $response : [];
 
+        if (! isset($assoc_args['keep-existing-meta'])) {
+            $this->clear_assessment_reports_meta($entry_id, isset($assoc_args['reset-ai']));
+        } elseif (isset($assoc_args['reset-ai'])) {
+            $this->clear_ai_meta($entry_id);
+        }
+
         do_action('fluentform_submission_inserted', $entry_id, $form_data, $form);
         do_action('fluentform/submission_inserted', $entry_id, $form_data, $form);
 
+        $summary = [
+            'entry_id' => $entry_id,
+            'report_id' => ar_get_report_id_by_entry_id($entry_id),
+            'report_mode' => ar_get_report_mode_by_entry_id($entry_id),
+            'top_sections_count' => count((array) get_top_sections_by_entry_id($entry_id)),
+            'selected_section_ids' => ar_get_selected_section_ids_by_entry_id($entry_id),
+            'has_score_payload' => ! empty(ar_get_score_payload_by_entry_id($entry_id)),
+            'has_section_scores' => ! empty(ar_get_section_scores_by_entry_id($entry_id)),
+            'ai_status' => Helper::getSubmissionMeta($entry_id, 'ai_generation_status'),
+        ];
+
         \WP_CLI::success('Reprocessed submission #' . $entry_id . ' through the Assessment Reports handlers.');
+        \WP_CLI::line(wp_json_encode($summary, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 
     /**
@@ -276,5 +325,111 @@ class CLI_Command
         }
 
         \WP_CLI::line(wp_json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Remove report-related submission meta before rebuilding it.
+     *
+     * @param int  $entry_id
+     * @param bool $reset_ai
+     * @return void
+     */
+    private function clear_assessment_reports_meta($entry_id, $reset_ai = false)
+    {
+        $entry_id = absint($entry_id);
+
+        foreach ($this->get_report_meta_keys() as $meta_key) {
+            $this->delete_submission_meta($entry_id, $meta_key);
+        }
+
+        if ($reset_ai) {
+            $this->clear_ai_meta($entry_id);
+        }
+    }
+
+    /**
+     * Remove AI-related submission meta.
+     *
+     * @param int $entry_id
+     * @return void
+     */
+    private function clear_ai_meta($entry_id)
+    {
+        $entry_id = absint($entry_id);
+
+        foreach ($this->get_ai_meta_keys() as $meta_key) {
+            $this->delete_submission_meta($entry_id, $meta_key);
+        }
+    }
+
+    /**
+     * Delete a submission meta row for an entry.
+     *
+     * @param int    $entry_id
+     * @param string $meta_key
+     * @return void
+     */
+    private function delete_submission_meta($entry_id, $meta_key)
+    {
+        $entry_id = absint($entry_id);
+        $meta_key = sanitize_text_field((string) $meta_key);
+
+        if (! $entry_id || $meta_key === '') {
+            return;
+        }
+
+        if (class_exists('\FluentForm\App\Models\SubmissionMeta')) {
+            \FluentForm\App\Models\SubmissionMeta::where('response_id', $entry_id)
+                ->where('meta_key', $meta_key)
+                ->delete();
+            return;
+        }
+
+        global $wpdb;
+
+        $wpdb->delete( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+            $wpdb->prefix . 'fluentform_submission_meta',
+            [
+                'response_id' => $entry_id,
+                'meta_key' => $meta_key,
+            ],
+            [
+                '%d',
+                '%s',
+            ]
+        );
+    }
+
+    /**
+     * Report meta keys rebuilt during submission processing.
+     *
+     * @return array<int, string>
+     */
+    private function get_report_meta_keys()
+    {
+        return [
+            'ar_report_mode',
+            'ar_score_profile_id',
+            'ar_report_id',
+            'ar_selected_section_ids',
+            'ar_score_payload',
+            'ar_section_scores',
+            'top_report_sections',
+        ];
+    }
+
+    /**
+     * AI meta keys optionally reset during reprocessing.
+     *
+     * @return array<int, string>
+     */
+    private function get_ai_meta_keys()
+    {
+        return [
+            'ai_generation_status',
+            'ai_generation_error',
+            'ai_generation_enqueued',
+            'ai_generated_content',
+        ];
     }
 }

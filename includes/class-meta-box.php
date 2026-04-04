@@ -53,6 +53,12 @@ class Meta_Box
         $selected_form = get_post_meta($post->ID, '_report_form_id', true);
         $report_mode = $this->get_report_mode($post->ID);
         $selected_profile = get_post_meta($post->ID, '_score_profile_id', true);
+        $children_display_limit = get_post_meta($post->ID, '_children_display_limit', true);
+        $children_display_limit = $children_display_limit !== '' ? $children_display_limit : '3';
+        $children_display_order = get_post_meta($post->ID, '_children_display_order', true);
+        if (! in_array($children_display_order, ['menu_order', 'score_asc', 'score_desc'], true)) {
+            $children_display_order = 'score_desc';
+        }
         $closing_content = get_post_meta($post->ID, '_report_closing_content', true);
         $forms = $this->get_available_forms();
         $profiles = Score_Profiles::get_profile_options();
@@ -114,6 +120,33 @@ class Meta_Box
             );
             ?>
         </p>
+        <p>
+            <label for="assessment_children_display_limit"><?php esc_html_e('Children Display Limit', 'assessment-reports'); ?></label>
+            <input
+                type="text"
+                name="assessment_children_display_limit"
+                id="assessment_children_display_limit"
+                class="widefat"
+                value="<?php echo esc_attr((string) $children_display_limit); ?>"
+                placeholder="3"
+            >
+            <span class="description"><?php esc_html_e('Used by legacy child scoring and Breakdance helpers. Enter a whole number or `all`.', 'assessment-reports'); ?></span>
+        </p>
+        <p>
+            <label for="assessment_children_display_order"><?php esc_html_e('Children Display Order', 'assessment-reports'); ?></label>
+            <select name="assessment_children_display_order" id="assessment_children_display_order" class="widefat">
+                <option value="score_desc" <?php selected($children_display_order, 'score_desc'); ?>>
+                    <?php esc_html_e('Score Descending', 'assessment-reports'); ?>
+                </option>
+                <option value="score_asc" <?php selected($children_display_order, 'score_asc'); ?>>
+                    <?php esc_html_e('Score Ascending', 'assessment-reports'); ?>
+                </option>
+                <option value="menu_order" <?php selected($children_display_order, 'menu_order'); ?>>
+                    <?php esc_html_e('Menu Order', 'assessment-reports'); ?>
+                </option>
+            </select>
+            <span class="description"><?php esc_html_e('Determines how child sections are ordered before the display limit is applied.', 'assessment-reports'); ?></span>
+        </p>
         <?php
     }
 
@@ -142,7 +175,7 @@ class Meta_Box
 
         $fields = $this->get_form_fields($form_id);
         if (! $fields) {
-            echo '<p>' . esc_html__('No radio or checkbox fields were found on the selected Fluent Form.', 'assessment-reports') . '</p>';
+            echo '<p>' . esc_html__('No scoreable choice fields were found on the selected Fluent Form.', 'assessment-reports') . '</p>';
             return;
         }
 
@@ -150,16 +183,55 @@ class Meta_Box
         if (! is_array($saved_mappings)) {
             $saved_mappings = [];
         }
+        $show_with_zero_score = ! empty(get_post_meta($post->ID, '_show_with_zero_score', true));
+        $graph_key = get_post_meta($post->ID, '_graph_key', true);
+        $graph_key = is_string($graph_key) ? $graph_key : '';
+        $section_max_score = get_post_meta($post->ID, '_section_max_score', true);
 
+        ?>
+        <div class="ar-section-scoring-settings">
+            <p>
+                <label for="assessment_report_graph_key" class="ar-field-label"><?php esc_html_e('Graph Key', 'assessment-reports'); ?></label>
+                <input
+                    type="text"
+                    class="widefat"
+                    name="assessment_report_graph_key"
+                    id="assessment_report_graph_key"
+                    value="<?php echo esc_attr($graph_key); ?>"
+                    placeholder="<?php echo esc_attr(sanitize_title($post->post_name ?: $post->post_title)); ?>"
+                >
+                <span class="description"><?php esc_html_e('Optional stable identifier for fetching this section score in Breakdance or helper functions.', 'assessment-reports'); ?></span>
+            </p>
+            <p>
+                <label for="assessment_report_section_max_score" class="ar-field-label"><?php esc_html_e('Section Max Score', 'assessment-reports'); ?></label>
+                <input
+                    type="number"
+                    class="widefat"
+                    name="assessment_report_section_max_score"
+                    id="assessment_report_section_max_score"
+                    step="0.01"
+                    value="<?php echo esc_attr($section_max_score !== '' ? (string) $section_max_score : ''); ?>"
+                    placeholder="100"
+                >
+                <span class="description"><?php esc_html_e('Optional max score used to calculate percentages for graphs and display helpers.', 'assessment-reports'); ?></span>
+            </p>
+            <p>
+                <label class="ar-inline-checkbox">
+                    <input type="checkbox" name="assessment_report_show_with_zero_score" value="1" <?php checked($show_with_zero_score); ?>>
+                    <span><?php esc_html_e('Show this section even with zero score', 'assessment-reports'); ?></span>
+                </label>
+            </p>
+        </div>
+        <?php
         echo '<div class="ar-field-mappings">';
         foreach ($fields as $field) {
             $field_type = $field['element'] ?? $field['type'] ?? '';
-            if (! in_array($field_type, ['input_checkbox', 'input_radio'], true)) {
+            if (! in_array($field_type, ['input_checkbox', 'input_radio', 'select', 'input_select', 'ratings'], true)) {
                 continue;
             }
 
             $field_name = $field['attributes']['name'] ?? '';
-            $choices = $field['settings']['advanced_options'] ?? [];
+            $choices = $this->get_scoreable_field_choices($field);
             if (empty($field_name) || empty($choices) || ! is_array($choices)) {
                 continue;
             }
@@ -179,22 +251,35 @@ class Meta_Box
                     continue;
                 }
 
-                $is_checked = isset($saved_mappings[$field_name][$choice_value]);
-                $weight_value = $is_checked ? intval($saved_mappings[$field_name][$choice_value]) : 1;
+                $normalized_mapping = ar_normalize_choice_mapping($saved_mappings[$field_name][$choice_value] ?? null);
+                $is_checked = $normalized_mapping['enabled'];
+                $points_value = $is_checked ? (string) $normalized_mapping['points'] : '1';
+                $multiplier_value = $is_checked ? (string) $normalized_mapping['multiplier'] : '1';
                 ?>
                 <label class="ar-choice-row">
                     <input type="checkbox" class="ar-mapping-checkbox" name="mappings[<?php echo esc_attr($field_name); ?>][<?php echo esc_attr($choice_value); ?>]" value="1" <?php checked($is_checked); ?>>
                     <span class="ar-choice-label"><?php echo esc_html($choice_label); ?></span>
-                    <span class="ar-weight-wrapper">
-                        <?php esc_html_e('Weight:', 'assessment-reports'); ?>
-                        <input
-                            type="number"
-                            class="ar-weight-input"
-                            min="1"
-                            max="10"
-                            value="<?php echo esc_attr($weight_value); ?>"
-                            name="weights[<?php echo esc_attr($field_name); ?>][<?php echo esc_attr($choice_value); ?>]"
-                        >
+                    <span class="ar-choice-scoring">
+                        <span class="ar-weight-wrapper">
+                            <?php esc_html_e('Points:', 'assessment-reports'); ?>
+                            <input
+                                type="number"
+                                class="ar-weight-input"
+                                step="0.01"
+                                value="<?php echo esc_attr($points_value); ?>"
+                                name="points[<?php echo esc_attr($field_name); ?>][<?php echo esc_attr($choice_value); ?>]"
+                            >
+                        </span>
+                        <span class="ar-weight-wrapper">
+                            <?php esc_html_e('Multiplier:', 'assessment-reports'); ?>
+                            <input
+                                type="number"
+                                class="ar-weight-input"
+                                step="0.01"
+                                value="<?php echo esc_attr($multiplier_value); ?>"
+                                name="multipliers[<?php echo esc_attr($field_name); ?>][<?php echo esc_attr($choice_value); ?>]"
+                            >
+                        </span>
                     </span>
                 </label>
                 <?php
@@ -256,6 +341,22 @@ class Meta_Box
             delete_post_meta($post_id, '_score_profile_id');
         }
 
+        $children_display_limit = isset($_POST['assessment_children_display_limit']) ? trim((string) wp_unslash($_POST['assessment_children_display_limit'])) : '';
+        if ($children_display_limit === '') {
+            delete_post_meta($post_id, '_children_display_limit');
+        } elseif (strtolower($children_display_limit) === 'all') {
+            update_post_meta($post_id, '_children_display_limit', 'all');
+        } else {
+            $limit = absint($children_display_limit);
+            update_post_meta($post_id, '_children_display_limit', $limit > 0 ? (string) $limit : '3');
+        }
+
+        $children_display_order = isset($_POST['assessment_children_display_order']) ? sanitize_key(wp_unslash($_POST['assessment_children_display_order'])) : 'score_desc';
+        if (! in_array($children_display_order, ['menu_order', 'score_asc', 'score_desc'], true)) {
+            $children_display_order = 'score_desc';
+        }
+        update_post_meta($post_id, '_children_display_order', $children_display_order);
+
         $closing_content = isset($_POST['assessment_report_closing_content']) ? wp_kses_post(wp_unslash($_POST['assessment_report_closing_content'])) : '';
         if ($closing_content !== '') {
             update_post_meta($post_id, '_report_closing_content', $closing_content);
@@ -272,6 +373,26 @@ class Meta_Box
 
         if (! current_user_can('edit_post', $post_id)) {
             return;
+        }
+
+        $graph_key = isset($_POST['assessment_report_graph_key']) ? sanitize_key(wp_unslash($_POST['assessment_report_graph_key'])) : '';
+        if ($graph_key !== '') {
+            update_post_meta($post_id, '_graph_key', $graph_key);
+        } else {
+            delete_post_meta($post_id, '_graph_key');
+        }
+
+        $section_max_score = isset($_POST['assessment_report_section_max_score']) ? trim((string) wp_unslash($_POST['assessment_report_section_max_score'])) : '';
+        if ($section_max_score !== '') {
+            update_post_meta($post_id, '_section_max_score', (float) $section_max_score);
+        } else {
+            delete_post_meta($post_id, '_section_max_score');
+        }
+
+        if (! empty($_POST['assessment_report_show_with_zero_score'])) {
+            update_post_meta($post_id, '_show_with_zero_score', 1);
+        } else {
+            delete_post_meta($post_id, '_show_with_zero_score');
         }
 
         $parent_id = wp_get_post_parent_id($post_id);
@@ -294,9 +415,14 @@ class Meta_Box
                         continue;
                     }
 
-                    $weight = isset($_POST['weights'][$field_name][$choice_value]) ? intval($_POST['weights'][$field_name][$choice_value]) : 1;
-                    $weight = max(1, min(10, $weight));
-                    $mappings[$field_name][$choice_value] = $weight;
+                    $points = isset($_POST['points'][$field_name][$choice_value]) ? trim((string) wp_unslash($_POST['points'][$field_name][$choice_value])) : '';
+                    $multiplier = isset($_POST['multipliers'][$field_name][$choice_value]) ? trim((string) wp_unslash($_POST['multipliers'][$field_name][$choice_value])) : '';
+
+                    $mappings[$field_name][$choice_value] = [
+                        'enabled' => 1,
+                        'points' => $points === '' ? 1.0 : (float) $points,
+                        'multiplier' => $multiplier === '' ? 1.0 : (float) $multiplier,
+                    ];
                 }
             }
         }
@@ -693,7 +819,7 @@ class Meta_Box
         $options = [];
         foreach ($fields as $field) {
             $type = $field['element'] ?? $field['type'] ?? '';
-            if (! in_array($type, ['input_checkbox', 'input_radio', 'select', 'input_select'], true)) {
+            if (! in_array($type, ['input_checkbox', 'input_radio', 'select', 'input_select', 'ratings'], true)) {
                 continue;
             }
 
@@ -786,7 +912,92 @@ class Meta_Box
             return [];
         }
 
-        return $fields['fields'] ?? [];
+        $flat_fields = [];
+        $this->collect_form_fields($fields['fields'] ?? [], $flat_fields);
+
+        return $flat_fields;
+    }
+
+    private function collect_form_fields(array $fields, array &$flat_fields)
+    {
+        foreach ($fields as $field) {
+            if (! is_array($field)) {
+                continue;
+            }
+
+            if (isset($field['columns']) && is_array($field['columns'])) {
+                foreach ($field['columns'] as $column) {
+                    if (is_array($column)) {
+                        $this->collect_form_fields($column['fields'] ?? [], $flat_fields);
+                    }
+                }
+            }
+
+            if (isset($field['fields']) && is_array($field['fields'])) {
+                $this->collect_form_fields($field['fields'], $flat_fields);
+            }
+
+            $name = $field['attributes']['name'] ?? '';
+            if ($name !== '') {
+                $flat_fields[] = $field;
+            }
+        }
+    }
+
+    private function get_scoreable_field_choices(array $field)
+    {
+        $choices = [];
+
+        foreach (($field['settings']['advanced_options'] ?? []) as $choice) {
+            if (! is_array($choice)) {
+                continue;
+            }
+
+            $value = isset($choice['value']) ? (string) $choice['value'] : '';
+            $label = isset($choice['label']) ? (string) $choice['label'] : $value;
+            if ($value === '') {
+                continue;
+            }
+
+            $choices[] = [
+                'value' => $value,
+                'label' => $label,
+            ];
+        }
+
+        foreach (($field['settings']['options'] ?? []) as $choice) {
+            if (! is_array($choice)) {
+                continue;
+            }
+
+            $value = isset($choice['value']) ? (string) $choice['value'] : '';
+            $label = isset($choice['label']) ? (string) $choice['label'] : $value;
+            if ($value === '') {
+                continue;
+            }
+
+            $choices[] = [
+                'value' => $value,
+                'label' => $label,
+            ];
+        }
+
+        if (! empty($field['options']) && is_array($field['options'])) {
+            foreach ($field['options'] as $value => $label) {
+                $value = (string) $value;
+                $label = is_scalar($label) ? (string) $label : $value;
+                if ($value === '') {
+                    continue;
+                }
+
+                $choices[] = [
+                    'value' => $value,
+                    'label' => $label,
+                ];
+            }
+        }
+
+        return $choices;
     }
 
     private function get_report_mode($post_id)

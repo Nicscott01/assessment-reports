@@ -13,7 +13,7 @@ Profiles are edited in WordPress at:
 
 - `Reports > Score Profiles`
 
-Each profile is saved as one JSON document in the `Profile Definition JSON` field.
+Each profile is stored as its own `Score Profile` post. The working definition lives in post meta on that profile, and the `Profile Definition JSON` field remains available as an advanced editor for parts of the schema that are not in the guided builder yet.
 
 ## How It Works
 
@@ -28,7 +28,7 @@ When a parent report is set to `Score Driven` and assigned a score profile:
 
 ## Top-Level Structure
 
-Each profile JSON should look like this:
+The stored profile definition JSON should look like this:
 
 ```json
 {

@@ -4,6 +4,7 @@ Assessment Reports maps Fluent Forms quiz submissions to dynamic report sections
 
 ## Features
 - Custom post type for report sections and parent reports
+- Report Group taxonomy for tagging related report sections
 - Fluent Forms submission mapping to section scores
 - Backward-compatible `score_driven` mode with stored score payloads and chart helpers
 - Shortcode rendering for report output
@@ -53,8 +54,32 @@ Notable helpers:
   - Returns a nested payload value such as `summary.percent` or `wellness.values.spiritual`.
 - `ar_get_chart_data($chart_key, $hash = null)`
   - Returns chart-ready data for `maslow`, `wellness`, `sdoh`, or `readiness`.
+- `ar_get_group_score_data($term, $hash = null)`
+  - Returns aggregate data for a tagged report group, including `score`, `max_score`, `percent`, and matched section IDs.
+- `ar_get_group_score($term, $hash = null, $default = null)` / `get_group_score($term, $hash = null, $default = null)`
+  - Returns the combined score for all child sections tagged with the given Report Group term.
+- `ar_get_group_percent($term, $hash = null, $default = null)` / `get_group_percent($term, $hash = null, $default = null)`
+  - Returns the combined percent for all child sections tagged with the given Report Group term when max scores are available.
+- `ar_get_section_score_by_graph_key($graph_key, $hash = null, $default = null)`
+  - Returns a stored child section score by its graph key.
+- `ar_get_child_section_score_records($parent_id, $entry_hash = null)` / `get_child_section_score_records($parent_id, $entry_hash = null)`
+  - Returns an array keyed by child section post ID with `score` and `graph_key`.
+- `ar_get_child_section_scores($parent_id, $entry_hash = null)` / `get_child_section_scores($parent_id, $entry_hash = null)`
+  - Returns an array keyed by child section post ID with each section's score for the current entry. Unmatched children return `0`.
+- `ar_get_overall_score($entry_hash = null, $default = null)` / `get_overall_score($entry_hash = null, $default = null)`
+  - Returns the overall score for the provided hash, or falls back to `$_GET['entry_hash']`.
+- `ar_get_overall_percent($entry_hash = null, $default = null)` / `get_overall_percent($entry_hash = null, $default = null)`
+  - Returns the overall percentage as `sum(section.score) / sum(section.max_score) * 100` for the provided hash, or falls back to `$_GET['entry_hash']`.
 - `ar_get_selected_section_ids_by_hash($hash = null)`
   - Returns the score-driven selected child section IDs.
+- `ar_get_section_scores_by_hash($hash = null)`
+  - Returns the full stored legacy child-score dataset for the current entry.
+- `ar_get_display_section_ids_by_hash($hash = null)`
+  - Returns ordered child IDs for Breakdance `post__in` queries using the parent report display rules.
+- `ar_get_section_score_by_graph_key($graph_key, $hash = null, $default = null)`
+  - Returns a stored child section score by its graph key.
+- `ar_get_section_percent_by_graph_key($graph_key, $hash = null, $default = null)`
+  - Returns a stored child section percent by its graph key.
 
 ## Score-Driven Reports
 The plugin now supports two report modes:
@@ -64,13 +89,29 @@ The plugin now supports two report modes:
 
 `legacy_response_mapped` behaves the same as the original plugin.
 
+Legacy mode now also supports:
+
+- per-choice `points` and `multiplier`
+- full child-score storage on submission
+- parent-level display limit/order rules
+- child-level graph keys, max scores, and zero-score inclusion
+
 `score_driven` uses:
 
 - a saved Score Profile
 - stored score payload data on submission
 - child-section rules that target payload paths instead of raw form answers
 
-See [`SCORE_PROFILES.md`](./SCORE_PROFILES.md) for the full format and examples for the `Profile Definition JSON` field.
+Score Profiles are managed as their own custom post type under `Reports > Score Profiles`, with the profile definition stored in post meta on each profile. See [`SCORE_PROFILES.md`](./SCORE_PROFILES.md) for the schema and examples for the advanced `Profile Definition JSON` field.
+
+## Report Groups
+Use the `Report Groups` taxonomy on child report sections to tag related sections together. This lets templates and content filters ask for a combined score without hard-coding section IDs, for example:
+
+```php
+\AssessmentReports\get_group_score('financial-wellbeing');
+```
+
+The helper accepts a term ID, slug, name, or `WP_Term`. Group aggregation is scoped to the current report entry and sums the matching child section scores for that report.
 
 ## Development Notes
 - AI generation is triggered on `template_redirect` when viewing a singular report and an entry hash is present.

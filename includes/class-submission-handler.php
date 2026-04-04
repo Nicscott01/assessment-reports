@@ -65,34 +65,44 @@ class Submission_Handler
                 continue;
             }
 
-            $score = $this->calculate_section_score($normalized_data, $mappings);
-            if ($score <= 0) {
+            $score_details = $this->calculate_section_score_details($normalized_data, $mappings, $form_id);
+            $score = (float) ($score_details['score'] ?? 0);
+            $show_with_zero = ! empty(get_post_meta($section->ID, '_show_with_zero_score', true));
+            if ($score <= 0 && ! $show_with_zero) {
                 continue;
+            }
+
+            $max_score_raw = get_post_meta($section->ID, '_section_max_score', true);
+            $max_score = $max_score_raw !== '' ? (float) $max_score_raw : null;
+            $percent = ($max_score !== null && $max_score > 0)
+                ? round(($score / $max_score) * 100, 4)
+                : null;
+            $graph_key = sanitize_key((string) get_post_meta($section->ID, '_graph_key', true));
+            if ($graph_key === '') {
+                $graph_key = sanitize_title($section->post_name ?: $section->post_title ?: 'section-' . $section->ID);
             }
 
             $section_scores[] = [
                 'section_id' => $section->ID,
                 'score'      => $score,
+                'max_score'  => $max_score,
+                'percent'    => $percent,
+                'graph_key'  => $graph_key,
+                'question_points' => $score_details['question_points'] ?? [],
                 'parent_id'  => $report->ID,
+                'menu_order' => isset($section->menu_order) ? (int) $section->menu_order : 0,
             ];
         }
 
         if (! $section_scores) {
             $this->log_debug('no matches', $entry_id, $form_id, ['report_id' => $report->ID]);
-            return;
         }
 
-        usort($section_scores, function ($a, $b) {
-            return $b['score'] <=> $a['score'];
-        });
-
-        $top_sections = array_slice($section_scores, 0, 3);
-        $encoded = wp_json_encode($top_sections);
-        if ($encoded) {
-            Helper::setSubmissionMeta($entry_id, 'top_report_sections', $encoded, $form_id);
-        }
-
+        $display_sections = ar_get_display_section_records($section_scores, $report->ID);
+        Helper::setSubmissionMeta($entry_id, 'ar_report_id', $report->ID, $form_id);
         Helper::setSubmissionMeta($entry_id, 'ar_report_mode', 'legacy_response_mapped', $form_id);
+        Helper::setSubmissionMeta($entry_id, 'ar_section_scores', wp_json_encode($section_scores ?: []), $form_id);
+        Helper::setSubmissionMeta($entry_id, 'top_report_sections', wp_json_encode($display_sections ?: []), $form_id);
         $this->maybe_queue_ai_generation($entry_id, $form_id, $report, $form_data, $form);
     }
 
@@ -194,7 +204,15 @@ class Submission_Handler
 
     private function calculate_section_score(array $submission_data, array $mappings)
     {
-        $score = 0;
+        $details = $this->calculate_section_score_details($submission_data, $mappings);
+
+        return (float) ($details['score'] ?? 0);
+    }
+
+    private function calculate_section_score_details(array $submission_data, array $mappings, $form_id = 0)
+    {
+        $score = 0.0;
+        $question_points = [];
 
         foreach ($mappings as $field_name => $choices) {
             if (! isset($submission_data[$field_name])) {
@@ -207,21 +225,61 @@ class Submission_Handler
             }
 
             $submitted_values = is_array($submitted) ? $submitted : [$submitted];
+            $matched_values = [];
+            $normalized_submitted_values = [];
+            $field_score = 0.0;
+
             foreach ($submitted_values as $value) {
-                if ($value === '' || $value === null) {
+                if ($value === '' || $value === null || is_array($value) || is_object($value)) {
                     continue;
                 }
 
                 $value = (string) $value;
+                if ($value === '') {
+                    continue;
+                }
+
+                $normalized_submitted_values[] = $value;
+
                 if (! isset($choices[$value])) {
                     continue;
                 }
 
-                $score += absint($choices[$value]);
+                $mapping = ar_normalize_choice_mapping($choices[$value]);
+                if (! $mapping['enabled']) {
+                    continue;
+                }
+
+                $answer_score = $mapping['points'] * $mapping['multiplier'];
+
+                $matched_values[] = [
+                    'value' => $value,
+                    'points' => (float) $mapping['points'],
+                    'multiplier' => (float) $mapping['multiplier'],
+                    'score' => (float) $answer_score,
+                ];
+
+                $field_score += $answer_score;
+                $score += $answer_score;
             }
+
+            if (! $matched_values && ! $normalized_submitted_values) {
+                continue;
+            }
+
+            $question_points[$field_name] = [
+                'field_name' => (string) $field_name,
+                'field_label' => ar_get_field_label($form_id, $field_name),
+                'submitted_values' => array_values(array_unique($normalized_submitted_values)),
+                'matched_values' => $matched_values,
+                'score' => (float) $field_score,
+            ];
         }
 
-        return $score;
+        return [
+            'score' => (float) $score,
+            'question_points' => $question_points,
+        ];
     }
 
     private function normalize_submission_data($form_data)
