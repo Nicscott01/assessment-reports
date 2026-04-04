@@ -60,7 +60,6 @@ class Entry_Report_Metabox
 
     private function render_widget($entry_id, array $groups)
     {
-        $report_mode = ar_get_report_mode_by_entry_id($entry_id);
         $fluent_hash = (string) Helper::getSubmissionMeta($entry_id, '_entry_uid_hash');
         $encoded_hash = ar_encode_entry_hash($entry_id);
 
@@ -73,7 +72,6 @@ class Entry_Report_Metabox
 
             <div class="ar-entry-report-widget__meta">
                 <span><strong><?php esc_html_e('Entry ID:', 'assessment-reports'); ?></strong> <?php echo esc_html((string) $entry_id); ?></span>
-                <span><strong><?php esc_html_e('Mode:', 'assessment-reports'); ?></strong> <?php echo esc_html($this->format_mode_label($report_mode)); ?></span>
                 <?php if ($fluent_hash !== '') : ?>
                     <span><strong><?php esc_html_e('Entry Hash:', 'assessment-reports'); ?></strong> <code><?php echo esc_html($fluent_hash); ?></code></span>
                 <?php endif; ?>
@@ -89,7 +87,6 @@ class Entry_Report_Metabox
                             <h4><?php echo esc_html($group['title']); ?></h4>
                             <p class="ar-entry-report-group__meta">
                                 <span><?php echo esc_html(sprintf(__('Report ID %d', 'assessment-reports'), $group['report_id'])); ?></span>
-                                <span><?php echo esc_html($this->format_mode_label($group['mode'])); ?></span>
                                 <?php if (! empty($group['report_url'])) : ?>
                                     <a href="<?php echo esc_url($group['report_url']); ?>" target="_blank" rel="noopener noreferrer">
                                         <?php esc_html_e('Open report', 'assessment-reports'); ?>
@@ -132,45 +129,10 @@ class Entry_Report_Metabox
                         </div>
                     <?php endif; ?>
 
-                    <?php if (! empty($group['payload_rows'])) : ?>
-                        <div class="ar-entry-report-block">
-                            <h5><?php esc_html_e('Score Payload', 'assessment-reports'); ?></h5>
-                            <table class="ar-entry-report-table widefat striped">
-                                <thead>
-                                    <tr>
-                                        <th><?php esc_html_e('Metric', 'assessment-reports'); ?></th>
-                                        <th><?php esc_html_e('Path', 'assessment-reports'); ?></th>
-                                        <th><?php esc_html_e('Score', 'assessment-reports'); ?></th>
-                                        <th><?php esc_html_e('Max', 'assessment-reports'); ?></th>
-                                        <th><?php esc_html_e('Percent', 'assessment-reports'); ?></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($group['payload_rows'] as $row) : ?>
-                                        <tr>
-                                            <td><?php echo esc_html($row['label']); ?></td>
-                                            <td><code><?php echo esc_html($row['path']); ?></code></td>
-                                            <td><?php echo esc_html($this->format_number($row['score'])); ?></td>
-                                            <td><?php echo esc_html($this->format_number($row['max_score'])); ?></td>
-                                            <td><?php echo esc_html($this->format_percent($row['percent'])); ?></td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    <?php endif; ?>
-
                     <?php if (! empty($group['section_rows'])) : ?>
                         <details class="ar-entry-report-details">
                             <summary><?php esc_html_e('Raw section data', 'assessment-reports'); ?></summary>
                             <pre><?php echo esc_html($this->encode_pretty_json($group['raw_section_data'])); ?></pre>
-                        </details>
-                    <?php endif; ?>
-
-                    <?php if (! empty($group['raw_payload'])) : ?>
-                        <details class="ar-entry-report-details">
-                            <summary><?php esc_html_e('Raw score payload', 'assessment-reports'); ?></summary>
-                            <pre><?php echo esc_html($this->encode_pretty_json($group['raw_payload'])); ?></pre>
                         </details>
                     <?php endif; ?>
                 </section>
@@ -189,12 +151,9 @@ class Entry_Report_Metabox
         }
 
         $report_ids = [];
-        $report_mode = ar_get_report_mode_by_entry_id($entry_id);
         $canonical_report_id = ar_get_report_id_by_entry_id($entry_id);
         $section_scores = ar_get_section_scores_by_entry_id($entry_id);
         $display_sections = get_top_sections_by_entry_id($entry_id);
-        $selected_section_ids = ar_get_selected_section_ids_by_entry_id($entry_id);
-        $score_payload = ar_get_score_payload_by_entry_id($entry_id);
 
         foreach ($section_scores as $record) {
             $parent_id = absint($record['parent_id'] ?? 0);
@@ -224,11 +183,8 @@ class Entry_Report_Metabox
             $group = $this->build_single_group(
                 $entry_id,
                 $report_id,
-                $report_mode,
                 $section_scores,
                 is_array($display_sections) ? $display_sections : [],
-                $selected_section_ids,
-                $score_payload,
                 $canonical_report_id
             );
 
@@ -242,7 +198,7 @@ class Entry_Report_Metabox
         return $groups;
     }
 
-    private function build_single_group($entry_id, $report_id, $report_mode, array $section_scores, array $display_sections, array $selected_section_ids, array $score_payload, $canonical_report_id)
+    private function build_single_group($entry_id, $report_id, array $section_scores, array $display_sections, $canonical_report_id)
     {
         $report_id = absint($report_id);
         if (! $report_id) {
@@ -266,107 +222,65 @@ class Entry_Report_Metabox
         $section_rows = [];
         $raw_section_data = [];
 
-        if ($report_mode === 'score_driven') {
-            foreach ($selected_section_ids as $position => $section_id) {
-                $section_id = absint($section_id);
-                if (! $section_id) {
-                    continue;
-                }
+        $report_records = [];
 
-                $section_post = get_post($section_id);
-                if (! $section_post || absint($section_post->post_parent) !== $report_id) {
-                    continue;
-                }
-
-                $display_record = $display_lookup[ $section_id ] ?? [];
-                $graph_key = sanitize_key((string) get_post_meta($section_id, '_graph_key', true));
-                if ($graph_key === '') {
-                    $graph_key = sanitize_title($section_post->post_name ?: $section_post->post_title ?: 'section-' . $section_id);
-                }
-
-                $max_score = get_post_meta($section_id, '_section_max_score', true);
-                $max_score = $max_score !== '' ? (float) $max_score : null;
-                $stored_score = array_key_exists('score', $display_record) ? (float) $display_record['score'] : (float) max(1, count($selected_section_ids) - $position);
-                $percent = $display_record['percent'] ?? null;
-                if ($percent === null && $max_score) {
-                    $percent = round(($stored_score / $max_score) * 100, 2);
-                }
-
-                $row = [
-                    'section_id' => $section_id,
-                    'title' => $section_post->post_title ?: sprintf(__('Section %d', 'assessment-reports'), $section_id),
-                    'score' => $stored_score,
-                    'max_score' => $max_score,
-                    'percent' => $percent !== null ? (float) $percent : null,
-                    'graph_key' => $graph_key,
-                    'is_displayed' => true,
-                    'score_section_rules' => get_post_meta($section_id, '_score_section_rules', true),
-                ];
-
-                $section_rows[] = $row;
-                $raw_section_data[] = $row;
+        foreach ($section_scores as $record) {
+            if (absint($record['parent_id'] ?? 0) !== $report_id) {
+                continue;
             }
-        } else {
-            $report_records = [];
 
-            foreach ($section_scores as $record) {
-                if (absint($record['parent_id'] ?? 0) !== $report_id) {
-                    continue;
-                }
+            $section_id = absint($record['section_id'] ?? 0);
+            if (! $section_id) {
+                continue;
+            }
 
-                $section_id = absint($record['section_id'] ?? 0);
-                if (! $section_id) {
-                    continue;
-                }
+            $report_records[ $section_id ] = $record;
+        }
 
+        if (! $report_records) {
+            foreach ($display_lookup as $section_id => $record) {
                 $report_records[ $section_id ] = $record;
             }
+        }
 
-            if (! $report_records) {
-                foreach ($display_lookup as $section_id => $record) {
-                    $report_records[ $section_id ] = $record;
+        foreach ($report_records as $section_id => $record) {
+            $section_post = get_post($section_id);
+            if (! $section_post) {
+                continue;
+            }
+
+            $max_score = array_key_exists('max_score', $record) && $record['max_score'] !== null
+                ? (float) $record['max_score']
+                : null;
+
+            if ($max_score === null) {
+                $configured_max = get_post_meta($section_id, '_section_max_score', true);
+                if ($configured_max !== '') {
+                    $max_score = (float) $configured_max;
                 }
             }
 
-            foreach ($report_records as $section_id => $record) {
-                $section_post = get_post($section_id);
-                if (! $section_post) {
-                    continue;
-                }
+            $percent = array_key_exists('percent', $record) && $record['percent'] !== null
+                ? (float) $record['percent']
+                : null;
 
-                $max_score = array_key_exists('max_score', $record) && $record['max_score'] !== null
-                    ? (float) $record['max_score']
-                    : null;
-
-                if ($max_score === null) {
-                    $configured_max = get_post_meta($section_id, '_section_max_score', true);
-                    if ($configured_max !== '') {
-                        $max_score = (float) $configured_max;
-                    }
-                }
-
-                $percent = array_key_exists('percent', $record) && $record['percent'] !== null
-                    ? (float) $record['percent']
-                    : null;
-
-                if ($percent === null && $max_score) {
-                    $percent = round((((float) ($record['score'] ?? 0)) / $max_score) * 100, 2);
-                }
-
-                $row = [
-                    'section_id' => $section_id,
-                    'title' => $section_post->post_title ?: sprintf(__('Section %d', 'assessment-reports'), $section_id),
-                    'score' => (float) ($record['score'] ?? 0),
-                    'max_score' => $max_score,
-                    'percent' => $percent,
-                    'graph_key' => (string) ($record['graph_key'] ?? ''),
-                    'is_displayed' => isset($display_lookup[ $section_id ]),
-                    'question_points' => $record['question_points'] ?? [],
-                ];
-
-                $section_rows[] = $row;
-                $raw_section_data[] = $record;
+            if ($percent === null && $max_score) {
+                $percent = round((((float) ($record['score'] ?? 0)) / $max_score) * 100, 2);
             }
+
+            $row = [
+                'section_id' => $section_id,
+                'title' => $section_post->post_title ?: sprintf(__('Section %d', 'assessment-reports'), $section_id),
+                'score' => (float) ($record['score'] ?? 0),
+                'max_score' => $max_score,
+                'percent' => $percent,
+                'graph_key' => (string) ($record['graph_key'] ?? ''),
+                'is_displayed' => isset($display_lookup[ $section_id ]),
+                'question_points' => $record['question_points'] ?? [],
+            ];
+
+            $section_rows[] = $row;
+            $raw_section_data[] = $record;
         }
 
         usort($section_rows, static function ($left, $right) {
@@ -383,77 +297,10 @@ class Entry_Report_Metabox
         return [
             'report_id' => $report_id,
             'title' => $report_post->post_title ?: sprintf(__('Report %d', 'assessment-reports'), $report_id),
-            'mode' => $report_mode,
             'report_url' => $this->get_report_url($report_id, $entry_id),
             'section_rows' => $section_rows,
             'raw_section_data' => $raw_section_data,
-            'payload_rows' => $report_id === $canonical_report_id ? $this->build_payload_rows($score_payload) : [],
-            'raw_payload' => $report_id === $canonical_report_id ? $score_payload : [],
         ];
-    }
-
-    private function build_payload_rows(array $payload)
-    {
-        if (! $payload) {
-            return [];
-        }
-
-        $rows = [];
-
-        if (! empty($payload['summary']) && is_array($payload['summary'])) {
-            $rows[] = [
-                'label' => (string) ($payload['summary']['label'] ?? __('Summary', 'assessment-reports')),
-                'path' => 'summary.score',
-                'score' => $payload['summary']['score'] ?? null,
-                'max_score' => $payload['summary']['max_score'] ?? null,
-                'percent' => $payload['summary']['percent'] ?? null,
-            ];
-        }
-
-        if (! empty($payload['readiness']) && is_array($payload['readiness'])) {
-            $rows[] = [
-                'label' => (string) ($payload['readiness']['label'] ?? __('Readiness', 'assessment-reports')),
-                'path' => 'readiness.score',
-                'score' => $payload['readiness']['score'] ?? null,
-                'max_score' => $payload['readiness']['max'] ?? null,
-                'percent' => $payload['readiness']['percent'] ?? null,
-            ];
-        }
-
-        foreach ($payload as $payload_key => $value) {
-            if (! is_array($value) || empty($value['items']) || ! is_array($value['items'])) {
-                continue;
-            }
-
-            $chart_label = (string) ($value['label'] ?? ucfirst((string) $payload_key));
-
-            $rows[] = [
-                'label' => sprintf(__('%s Total', 'assessment-reports'), $chart_label),
-                'path' => $payload_key . '.total',
-                'score' => $value['total'] ?? null,
-                'max_score' => $value['max_total'] ?? ($value['max'] ?? null),
-                'percent' => $value['percent'] ?? null,
-            ];
-
-            foreach ($value['items'] as $item) {
-                if (! is_array($item)) {
-                    continue;
-                }
-
-                $item_key = sanitize_key((string) ($item['key'] ?? ''));
-                $item_label = (string) ($item['label'] ?? $item_key);
-
-                $rows[] = [
-                    'label' => $chart_label . ' / ' . $item_label,
-                    'path' => $payload_key . '.items.' . $item_key,
-                    'score' => $item['value'] ?? null,
-                    'max_score' => $item['max'] ?? null,
-                    'percent' => $item['percent'] ?? null,
-                ];
-            }
-        }
-
-        return $rows;
     }
 
     private function get_report_url($report_id, $entry_id)
@@ -480,13 +327,6 @@ class Entry_Report_Metabox
         return $encoded_hash !== ''
             ? add_query_arg('entry', $encoded_hash, $report_permalink)
             : '';
-    }
-
-    private function format_mode_label($mode)
-    {
-        return $mode === 'score_driven'
-            ? __('Score Driven', 'assessment-reports')
-            : __('Legacy Response Mapped', 'assessment-reports');
     }
 
     private function format_number($value)

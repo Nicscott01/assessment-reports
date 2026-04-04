@@ -75,16 +75,6 @@ function get_top_sections_by_entry_id($entry_id)
         return null;
     }
 
-    if (ar_get_report_mode_by_entry_id($entry_id) === 'score_driven') {
-        $section_ids = ar_get_selected_section_ids_by_entry_id($entry_id);
-        $report_id = ar_get_report_id_by_entry_id($entry_id);
-        if (! $report_id) {
-            return null;
-        }
-
-        return ar_build_section_records($section_ids, $report_id);
-    }
-
     $section_scores = ar_get_section_scores_by_entry_id($entry_id);
     if ($section_scores) {
         $report_id = absint(Helper::getSubmissionMeta($entry_id, 'ar_report_id'));
@@ -187,15 +177,6 @@ function ar_get_report_id_by_entry_id($entry_id)
     $meta_report_id = absint(Helper::getSubmissionMeta($entry_id, 'ar_report_id'));
     if ($meta_report_id) {
         return $meta_report_id;
-    }
-
-    $score_payload = ar_get_score_payload_by_entry_id($entry_id);
-    if (! empty($score_payload['report_id'])) {
-        return absint($score_payload['report_id']);
-    }
-
-    if (ar_get_report_mode_by_entry_id($entry_id) === 'score_driven') {
-        return 0;
     }
 
     $section_scores = ar_get_section_scores_by_entry_id($entry_id);
@@ -614,13 +595,6 @@ function ar_get_report_debug_export($hash = null)
     $encoded_hash = ar_encode_entry_hash($entry_id);
     $report_id = ar_get_report_id_by_entry_id($entry_id);
     $report = $report_id ? get_post($report_id) : null;
-    $score_profile_id = (string) Helper::getSubmissionMeta($entry_id, 'ar_score_profile_id');
-    $score_profile = null;
-
-    if ($score_profile_id !== '' && class_exists(__NAMESPACE__ . '\Score_Profiles')) {
-        $score_profile = Score_Profiles::get_profile($score_profile_id);
-    }
-
     $top_sections = get_top_sections_by_entry_id($entry_id);
     $display_sections = [];
 
@@ -642,7 +616,6 @@ function ar_get_report_debug_export($hash = null)
                 'parent_id' => absint($section['parent_id'] ?? 0),
                 'post' => ar_get_report_debug_post_snapshot($section_post),
                 'field_mappings' => ar_normalize_report_debug_value(get_post_meta($section_id, '_field_mappings', true)),
-                'score_section_rules' => ar_normalize_report_debug_value(get_post_meta($section_id, '_score_section_rules', true)),
                 'show_with_zero_score' => ! empty(get_post_meta($section_id, '_show_with_zero_score', true)),
                 'section_max_score' => get_post_meta($section_id, '_section_max_score', true),
                 'configured_graph_key' => sanitize_key((string) get_post_meta($section_id, '_graph_key', true)),
@@ -675,12 +648,9 @@ function ar_get_report_debug_export($hash = null)
             'user_inputs' => ar_normalize_report_debug_value($entry->user_inputs ?? []),
         ],
         'report' => [
-            'mode' => ar_get_report_mode_by_entry_id($entry_id),
             'id' => $report_id,
             'post' => ar_get_report_debug_post_snapshot($report),
             'form_id' => $report_id ? absint(get_post_meta($report_id, '_report_form_id', true)) : 0,
-            'score_profile_id' => $score_profile_id,
-            'score_profile' => ar_normalize_report_debug_value($score_profile),
             'children_display_limit' => $report_id ? ar_get_children_display_limit($report_id) : null,
             'children_display_order' => $report_id ? ar_get_children_display_order($report_id) : '',
             'closing_content' => $report_id ? get_post_meta($report_id, '_report_closing_content', true) : '',
@@ -690,11 +660,9 @@ function ar_get_report_debug_export($hash = null)
             'display' => $display_sections,
             'stored_top_sections' => ar_normalize_report_debug_value($top_sections),
             'stored_section_scores' => ar_get_section_scores_by_entry_id($entry_id),
-            'selected_section_ids' => ar_get_selected_section_ids_by_entry_id($entry_id),
         ],
         'scores' => [
             'quiz_score' => ar_get_quiz_score($entry_id),
-            'score_payload' => ar_get_score_payload_by_entry_id($entry_id),
         ],
         'ai' => [
             'status' => Helper::getSubmissionMeta($entry_id, 'ai_generation_status'),
@@ -705,11 +673,7 @@ function ar_get_report_debug_export($hash = null)
         'meta' => [
             '_entry_uid_hash' => $fluent_hash,
             'ar_report_id' => Helper::getSubmissionMeta($entry_id, 'ar_report_id'),
-            'ar_report_mode' => Helper::getSubmissionMeta($entry_id, 'ar_report_mode'),
-            'ar_score_profile_id' => Helper::getSubmissionMeta($entry_id, 'ar_score_profile_id'),
-            'ar_selected_section_ids' => ar_get_selected_section_ids_by_entry_id($entry_id),
             'ar_section_scores' => ar_get_section_scores_by_entry_id($entry_id),
-            'ar_score_payload' => ar_get_score_payload_by_entry_id($entry_id),
             'top_report_sections' => ar_normalize_report_debug_value(Helper::getSubmissionMeta($entry_id, 'top_report_sections')),
             'ai_generation_status' => Helper::getSubmissionMeta($entry_id, 'ai_generation_status'),
             'ai_generation_error' => Helper::getSubmissionMeta($entry_id, 'ai_generation_error'),
@@ -1761,22 +1725,6 @@ function ar_get_child_section_score_records($parent_id, $entry_hash = null)
         return $records;
     }
 
-    if (ar_get_report_mode_by_entry_id($entry_id) === 'score_driven') {
-        foreach (ar_get_selected_section_ids_by_entry_id($entry_id) as $section_id) {
-            $section_id = absint($section_id);
-            if (! isset($records[ $section_id ])) {
-                continue;
-            }
-
-            $rules = get_post_meta($section_id, '_score_section_rules', true);
-            $records[ $section_id ]['score'] = is_array($rules) && isset($rules['priority'])
-                ? (float) $rules['priority']
-                : 0.0;
-        }
-
-        return $records;
-    }
-
     foreach ((array) get_top_sections_by_entry_id($entry_id) as $record) {
         $section_id = absint($record['section_id'] ?? 0);
         $record_parent_id = absint($record['parent_id'] ?? 0);
@@ -1848,13 +1796,6 @@ function get_child_section_scores($parent_id, $entry_hash = null)
  */
 function ar_get_quiz_score($entry_id)
 {
-    if (ar_get_report_mode_by_entry_id($entry_id) === 'score_driven') {
-        $payload = ar_get_score_payload_by_entry_id($entry_id);
-        if (! empty($payload['summary']['score'])) {
-            return (float) $payload['summary']['score'];
-        }
-    }
-
     $sections = ar_get_section_scores_by_entry_id($entry_id);
     if (! $sections) {
         $sections = get_top_sections_by_entry_id($entry_id);
@@ -1994,92 +1935,7 @@ function ar_enqueue_ai_generation($report_id, $entry_id)
  */
 function ar_get_report_mode_by_entry_id($entry_id)
 {
-    $entry_id = absint($entry_id);
-    if (! $entry_id) {
-        return 'legacy_response_mapped';
-    }
-
-    $mode = Helper::getSubmissionMeta($entry_id, 'ar_report_mode');
-
-    return $mode === 'score_driven' ? 'score_driven' : 'legacy_response_mapped';
-}
-
-/**
- * Get a stored score payload for an entry.
- *
- * @param int $entry_id
- * @return array
- */
-function ar_get_score_payload_by_entry_id($entry_id)
-{
-    $entry_id = absint($entry_id);
-    if (! $entry_id) {
-        return [];
-    }
-
-    $raw = Helper::getSubmissionMeta($entry_id, 'ar_score_payload');
-    if (! $raw) {
-        return [];
-    }
-
-    if (is_string($raw)) {
-        $decoded = json_decode($raw, true);
-        return is_array($decoded) ? $decoded : [];
-    }
-
-    return is_array($raw) ? $raw : [];
-}
-
-/**
- * Get a stored score payload by entry hash.
- *
- * @param string|null $hash
- * @return array
- */
-function ar_get_score_payload_by_hash($hash = null)
-{
-    $entry_id = ar_get_entry_id_from_hash($hash);
-
-    return $entry_id ? ar_get_score_payload_by_entry_id($entry_id) : [];
-}
-
-/**
- * Resolve a nested value from the stored score payload.
- *
- * @param string $path
- * @param string|null $hash
- * @param mixed $default
- * @return mixed
- */
-function ar_get_score_value($path, $hash = null, $default = null)
-{
-    $payload = ar_get_score_payload_by_hash($hash);
-    if (! $payload || ! is_string($path) || $path === '') {
-        return $default;
-    }
-
-    $value = ar_get_nested_value($payload, explode('.', $path));
-
-    return $value !== null ? $value : $default;
-}
-
-/**
- * Return chart-ready payload for a chart key.
- *
- * @param string $chart_key
- * @param string|null $hash
- * @return array
- */
-function ar_get_chart_data($chart_key, $hash = null)
-{
-    $chart_key = sanitize_key((string) $chart_key);
-    $payload = ar_get_score_payload_by_hash($hash);
-
-    if ($chart_key === '' || empty($payload[ $chart_key ]) || ! is_array($payload[ $chart_key ])) {
-        return [];
-    }
-
-    return $payload[ $chart_key ];
+    return 'legacy_response_mapped';
 }
 
 /**
@@ -2282,91 +2138,4 @@ function get_group_score($term, $entry_hash = null, $default = null)
 function get_group_percent($term, $entry_hash = null, $default = null)
 {
     return ar_get_group_percent($term, $entry_hash, $default);
-}
-
-/**
- * Get selected score-driven section IDs for an entry.
- *
- * @param int $entry_id
- * @return array<int, int>
- */
-function ar_get_selected_section_ids_by_entry_id($entry_id)
-{
-    $entry_id = absint($entry_id);
-    if (! $entry_id) {
-        return [];
-    }
-
-    $raw = Helper::getSubmissionMeta($entry_id, 'ar_selected_section_ids');
-    if (! $raw) {
-        return [];
-    }
-
-    if (is_string($raw)) {
-        $decoded = json_decode($raw, true);
-        $raw = is_array($decoded) ? $decoded : [];
-    }
-
-    if (! is_array($raw)) {
-        return [];
-    }
-
-    return array_values(array_filter(array_map('absint', $raw)));
-}
-
-/**
- * Get selected score-driven section IDs by entry hash.
- *
- * @param string|null $hash
- * @return array<int, int>
- */
-function ar_get_selected_section_ids_by_hash($hash = null)
-{
-    $entry_id = ar_get_entry_id_from_hash($hash);
-
-    return $entry_id ? ar_get_selected_section_ids_by_entry_id($entry_id) : [];
-}
-
-/**
- * Get selected section posts by hash for score-driven reports.
- *
- * @param string|null $hash
- * @return array|null
- */
-function ar_get_selected_sections_by_hash($hash = null)
-{
-    $entry_id = ar_get_entry_id_from_hash($hash);
-    if (! $entry_id) {
-        return null;
-    }
-
-    return get_report_sections_by_hash($hash);
-}
-
-/**
- * Build normalized section records from selected IDs.
- *
- * @param array<int, int> $section_ids
- * @param int $report_id
- * @return array<int, array<string, int>>
- */
-function ar_build_section_records(array $section_ids, $report_id)
-{
-    $records = [];
-    $report_id = absint($report_id);
-
-    foreach ($section_ids as $index => $section_id) {
-        $section_id = absint($section_id);
-        if (! $section_id) {
-            continue;
-        }
-
-        $records[] = [
-            'section_id' => $section_id,
-            'score' => max(1, count($section_ids) - $index),
-            'parent_id' => $report_id,
-        ];
-    }
-
-    return $records;
 }

@@ -1,1 +1,5 @@
 # TODOs
+
+4/4/26
+1) Right now, if you add multiple parent reports, only the first one gets scored/calculated. I haven't thought of a scenario where there needs to be more than one report for a form, but maybe there could be? So, we need to potentially modify the way we store the report meta with the submission--include a suffix of the report parent ID in the key? And then, we'll need to be able to show the raw data for all reports in our FluentForms entry meta box.
+2) The UI for entering a report section (scrolling through the questions and selecting the ones to include for points) is long and cumbersome. I see some sort of way to select the questions you want to include for that section, and then have them expand. Some way to hide the unused questions. But obviously need to figure out the "step 1" of picking the questions to include for scoring. Could simply be that all the questions are collapsed, and you click a checkbox to "activate" the questions you want. Then, you have a checkbox up above that list that is to "Hide non-active fields". And then have the ability to collapse all or expand all and have each one work like an accordion.

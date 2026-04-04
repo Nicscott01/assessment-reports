@@ -6,7 +6,6 @@ Assessment Reports maps Fluent Forms quiz submissions to dynamic report sections
 - Custom post type for report sections and parent reports
 - Report Group taxonomy for tagging related report sections
 - Fluent Forms submission mapping to section scores
-- Backward-compatible `score_driven` mode with stored score payloads and chart helpers
 - Shortcode rendering for report output
 - AI personalization blocks with token replacement (e.g. `{ai.opening}`)
 - Caches AI content per submission
@@ -70,8 +69,6 @@ Notable helpers:
   - Returns the overall score for the provided hash, or falls back to `$_GET['entry_hash']`.
 - `ar_get_overall_percent($entry_hash = null, $default = null)` / `get_overall_percent($entry_hash = null, $default = null)`
   - Returns the overall percentage as `sum(section.score) / sum(section.max_score) * 100` for the provided hash, or falls back to `$_GET['entry_hash']`.
-- `ar_get_selected_section_ids_by_hash($hash = null)`
-  - Returns the score-driven selected child section IDs.
 - `ar_get_section_scores_by_hash($hash = null)`
   - Returns the full stored legacy child-score dataset for the current entry.
 - `ar_get_display_section_ids_by_hash($hash = null)`
@@ -81,28 +78,13 @@ Notable helpers:
 - `ar_get_section_percent_by_graph_key($graph_key, $hash = null, $default = null)`
   - Returns a stored child section percent by its graph key.
 
-## Score-Driven Reports
-The plugin now supports two report modes:
-
-- `legacy_response_mapped`
-- `score_driven`
-
-`legacy_response_mapped` behaves the same as the original plugin.
-
-Legacy mode now also supports:
+## Legacy Child Scoring
+The plugin keeps the original response-mapped report model and now also supports:
 
 - per-choice `points` and `multiplier`
 - full child-score storage on submission
 - parent-level display limit/order rules
 - child-level graph keys, max scores, and zero-score inclusion
-
-`score_driven` uses:
-
-- a saved Score Profile
-- stored score payload data on submission
-- child-section rules that target payload paths instead of raw form answers
-
-Score Profiles are managed as their own custom post type under `Reports > Score Profiles`, with the profile definition stored in post meta on each profile. See [`SCORE_PROFILES.md`](./SCORE_PROFILES.md) for the schema and examples for the advanced `Profile Definition JSON` field.
 
 ## Report Groups
 Use the `Report Groups` taxonomy on child report sections to tag related sections together. This lets templates and content filters ask for a combined score without hard-coding section IDs, for example:

@@ -38,12 +38,6 @@ class Submission_Handler
             return;
         }
 
-        $report_mode = $this->get_report_mode($report->ID);
-        if ($report_mode === 'score_driven') {
-            $this->handle_score_driven_submission($entry_id, $form_data, $form, $report, $form_id);
-            return;
-        }
-
         $sections = get_posts([
             'post_type'      => Post_Type::POST_TYPE,
             'post_parent'    => $report->ID,
@@ -100,7 +94,6 @@ class Submission_Handler
 
         $display_sections = ar_get_display_section_records($section_scores, $report->ID);
         Helper::setSubmissionMeta($entry_id, 'ar_report_id', $report->ID, $form_id);
-        Helper::setSubmissionMeta($entry_id, 'ar_report_mode', 'legacy_response_mapped', $form_id);
         Helper::setSubmissionMeta($entry_id, 'ar_section_scores', wp_json_encode($section_scores ?: []), $form_id);
         Helper::setSubmissionMeta($entry_id, 'top_report_sections', wp_json_encode($display_sections ?: []), $form_id);
         $this->maybe_queue_ai_generation($entry_id, $form_id, $report, $form_data, $form);
@@ -133,45 +126,6 @@ class Submission_Handler
         error_log(sprintf('Assessment Reports debug: %s | %s', $message, $context_string));
     }
 
-    private function handle_score_driven_submission($entry_id, $form_data, $form, $report, $form_id)
-    {
-        $profile_id = get_post_meta($report->ID, '_score_profile_id', true);
-        $profile = $profile_id ? Score_Profiles::get_profile($profile_id) : null;
-        if (! $profile) {
-            $this->log_debug('missing score profile', $entry_id, $form_id, [
-                'report_id' => $report->ID,
-                'profile_id' => $profile_id,
-            ]);
-            return;
-        }
-
-        $normalized_data = $this->normalize_submission_data($form_data);
-        $engine = new Score_Engine($profile);
-        $payload = $engine->compute_payload($normalized_data);
-
-        if (! $payload) {
-            $this->log_debug('score payload empty', $entry_id, $form_id, [
-                'report_id' => $report->ID,
-                'profile_id' => $profile_id,
-            ]);
-            return;
-        }
-
-        $selected_sections = $engine->select_sections($report->ID, $payload);
-        $selected_section_ids = array_values(array_map('absint', wp_list_pluck($selected_sections, 'section_id')));
-
-        $payload['report_id'] = absint($report->ID);
-        $payload['selected_section_ids'] = $selected_section_ids;
-
-        Helper::setSubmissionMeta($entry_id, 'ar_report_mode', 'score_driven', $form_id);
-        Helper::setSubmissionMeta($entry_id, 'ar_score_profile_id', $profile_id, $form_id);
-        Helper::setSubmissionMeta($entry_id, 'ar_report_id', $report->ID, $form_id);
-        Helper::setSubmissionMeta($entry_id, 'ar_selected_section_ids', wp_json_encode($selected_section_ids), $form_id);
-        Helper::setSubmissionMeta($entry_id, 'ar_score_payload', wp_json_encode($payload), $form_id);
-
-        $this->maybe_queue_ai_generation($entry_id, $form_id, $report, $form_data, $form);
-    }
-
     private function maybe_queue_ai_generation($entry_id, $form_id, $report, $form_data, $form)
     {
         $ai_status = Helper::getSubmissionMeta($entry_id, 'ai_generation_status');
@@ -193,13 +147,6 @@ class Submission_Handler
             do_action('assessment_reports_submission_pending', $entry_id, $form_data, $form);
             do_action('assessment_reports_pending_contact_' . $entry_id);
         }
-    }
-
-    private function get_report_mode($report_id)
-    {
-        $mode = get_post_meta($report_id, '_report_mode', true);
-
-        return $mode === 'score_driven' ? 'score_driven' : 'legacy_response_mapped';
     }
 
     private function calculate_section_score(array $submission_data, array $mappings)
