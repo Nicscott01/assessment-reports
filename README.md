@@ -31,6 +31,21 @@ Assessment Reports maps Fluent Forms quiz submissions to dynamic report sections
 ## Shortcode
 Use `[assessment_report]` on a page to render a report based on the URL entry hash.
 
+## Scoring CSV Export
+Run the WP-CLI export script from the Bedrock root to audit report scoring mappings in a spreadsheet-friendly format:
+
+```bash
+wp eval-file web/app/plugins/assessment-reports-dev/scripts/export-report-scoring-csv.php 15 report-15-question-response-scores.csv
+```
+
+The script accepts positional arguments or flags:
+
+```bash
+wp eval-file web/app/plugins/assessment-reports-dev/scripts/export-report-scoring-csv.php --report-id=15 --output=report-15-question-response-scores.csv
+```
+
+The CSV includes parent report details, Fluent Form question labels, stored response values, response labels, child report sections, graph keys, section max scores, enabled state, points, multipliers, and calculated scores.
+
 ## AI Personalization
 - AI blocks are configured on parent report posts (Report Configuration > AI Personalization).
 - Each block has a token name (e.g. `opening`).
@@ -104,3 +119,8 @@ The helper accepts a term ID, slug, name, or `WP_Term`. Group aggregation is sco
 - If AI meta boxes do not render, confirm callbacks are public.
 - If entry hashes fail to resolve, verify the URL parameter and submission hash storage.
 - Check PHP error logs for `AR AI:` debug lines during AI generation.
+
+## Changelog
+
+### 1.1.0-beta.2
+- Added a WP-CLI CSV export script for auditing report scoring mappings by report, form question, response value, child section, points, multiplier, and calculated score.
