@@ -1866,6 +1866,43 @@ function ar_get_overall_percent($entry_hash = null, $default = null)
         return $default;
     }
 
+    // Section-score storage may omit sections that earned zero points. Those
+    // sections must still contribute their configured maximum to the overall
+    // denominator, otherwise low-scoring reports receive an inflated percent.
+    $parent_ids = [];
+
+    foreach ($sections as $section) {
+        $section_id = absint($section['section_id'] ?? 0);
+        $parent_id = absint($section['parent_id'] ?? 0);
+
+        if (! $parent_id && $section_id) {
+            $parent_id = (int) wp_get_post_parent_id($section_id);
+        }
+
+        if ($parent_id) {
+            $parent_ids[ $parent_id ] = true;
+        }
+    }
+
+    if ($parent_ids) {
+        $complete_sections = [];
+
+        foreach (array_keys($parent_ids) as $parent_id) {
+            foreach (ar_get_child_section_score_records($parent_id, $entry_hash) as $section_id => $record) {
+                $complete_sections[] = [
+                    'section_id' => (int) $section_id,
+                    'parent_id' => (int) $parent_id,
+                    'score' => (float) ($record['score'] ?? 0),
+                    'max_score' => (float) get_post_meta((int) $section_id, '_section_max_score', true),
+                ];
+            }
+        }
+
+        if ($complete_sections) {
+            $sections = $complete_sections;
+        }
+    }
+
     $score_total = 0.0;
     $max_total = 0.0;
 
