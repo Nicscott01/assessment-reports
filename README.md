@@ -122,5 +122,8 @@ The helper accepts a term ID, slug, name, or `WP_Term`. Group aggregation is sco
 
 ## Changelog
 
+### 1.1.0-beta.3
+- Fixed overall percentage inflation when zero-score child sections were omitted from stored section-score records.
+
 ### 1.1.0-beta.2
 - Added a WP-CLI CSV export script for auditing report scoring mappings by report, form question, response value, child section, points, multiplier, and calculated score.
